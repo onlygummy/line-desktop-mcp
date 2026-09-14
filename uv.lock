@@ -786,7 +786,7 @@ wheels = [
 
 [[package]]
 name = "line-desktop-mcp"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
@@ -796,19 +796,19 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
-    { name = "line-ext-msg", specifier = ">=1.0" },
+    { name = "line-ext-msg", specifier = ">=1.2" },
 ]
 
 [[package]]
 name = "line-ext-msg"
-version = "1.1.0"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "playwright" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/09/b7d1201b77be6c01c4f141662334425a02cb82be7a659426e4ee6d3da3bb/line_ext_msg-1.1.0.tar.gz", hash = "sha256:f788b70f0e91e0cb14daefc9dd89122da97fcac17249383a80b159d5e2c6f3a8", size = 55026, upload-time = "2026-09-12T09:50:37.401Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/ac/de51133b12e043390da042b0358347d1217a20ba6be98112ddfd3adcb446/line_ext_msg-1.2.0.tar.gz", hash = "sha256:c3fdfc7d46f4c1b5fc1c6d1dc6384467f2190f8ed268c2433701c19475e92e50", size = 61560, upload-time = "2026-09-14T02:17:32.919Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/29/7264c33528d4d38335383c92091452c8477a82b7d6063ed5397741cdd8ba/line_ext_msg-1.1.0-py3-none-any.whl", hash = "sha256:cabad330024837e98ac0197e4a03eb87a4f4920a3c9f2ae71d71a145b9bbcb31", size = 31640, upload-time = "2026-09-12T09:50:35.933Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/09/c47976aed0b5d69ab7c2e4f7a01fdc9b686eef2658100e64bea062821eca/line_ext_msg-1.2.0-py3-none-any.whl", hash = "sha256:94bc61b7db7db82c2695d5d57414a24ed71d4ed691d3ba435122384655076c27", size = 37744, upload-time = "2026-09-14T02:17:34.318Z" },
 ]
 
 [[package]]

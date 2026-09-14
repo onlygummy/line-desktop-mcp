@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "line-desktop-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "MCP server for LINE Desktop automation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
   "fastmcp>=2.0",
-  "line-ext-msg>=1.0",
+  "line-ext-msg>=1.2",
 ]
 
 [project.scripts]
