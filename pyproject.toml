@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "line-desktop-mcp"
+version = "1.0.0"
+description = "MCP server for LINE Desktop automation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "onlygummy" },
+]
+dependencies = [
+  "fastmcp>=2.0",
+  "line-ext-msg>=1.0",
+]
+
+[project.scripts]
+line-desktop-mcp = "line_desktop_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/onlygummy/line-desktop-mcp"
+Repository = "https://github.com/onlygummy/line-desktop-mcp"
+Issues = "https://github.com/onlygummy/line-desktop-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/line_desktop_mcp"]
