@@ -1,5 +1,7 @@
 """Unit tests for line-desktop-mcp (no browser needed; LineClient is mocked)."""
 
+import asyncio
+import os
 import unittest
 from unittest.mock import patch
 
@@ -36,6 +38,7 @@ class FakeClient:
     """Minimal LineClient stand-in (context manager + scripted status)."""
 
     seen_calls: list = []
+    messages_calls: list = []
     _steps: list = []
     _error: Exception | None = None
     _error_on_call: dict = {}
@@ -57,6 +60,10 @@ class FakeClient:
         if FakeClient._error is not None:
             raise FakeClient._error
         return FakeClient._steps
+
+    def get_messages(self, **kwargs):
+        FakeClient.messages_calls.append(kwargs)
+        return []
 
 
 class ResolveTest(unittest.TestCase):
@@ -102,83 +109,98 @@ class EnvelopeTest(unittest.TestCase):
         self.assertIn("next", out)
 
 
-class WaitLoginTest(unittest.TestCase):
+class LineStatusTest(unittest.IsolatedAsyncioTestCase):
+    """line_status is the single setup entry: it waits for login by default."""
+
     def setUp(self):
-        FakeClient._steps = [StepResult(name="ล็อกอินแล้ว", passed=True, detail="ok")]
+        FakeClient._steps = [StepResult(name="Logged in", passed=True, detail="ok")]
         FakeClient._error = None
         FakeClient._error_on_call = {}
         FakeClient.seen_calls = []
 
-    def test_success_headless_proves_reuse_without_settle(self):
-        with (
-            patch.object(lm, "LineClient", FakeClient),
-            patch.object(lm, "_debug_headed", return_value=False),
-            patch.object(lm, "time") as mock_time,
-        ):
-            out = lm._wait_login(180)
-        self.assertTrue(out["ok"])
-        self.assertTrue(out["data"]["logged_in"])
-        # Upstream waits inside the first call; the second is a fail-fast
-        # headless re-verify. Already headless, so no settle sleep.
+    async def _call(self, args: dict):
+        from fastmcp import Client
+
+        from line_desktop_mcp.server import mcp
+
+        with patch.object(lm, "LineClient", FakeClient):
+            async with Client(mcp) as client:
+                result = await client.call_tool("line_status", args)
+        return getattr(result, "data", None)
+
+    async def test_waits_for_login_by_default(self):
+        await self._call({})
         self.assertEqual(
             FakeClient.seen_calls,
-            [{"wait_for_login": True, "login_timeout_ms": 180000}, {}],
+            [{"wait_for_login": True, "login_timeout_ms": 180000}],
         )
-        mock_time.sleep.assert_not_called()
 
-    def test_headed_login_settles_before_headless_verify(self):
-        with (
-            patch.object(lm, "LineClient", FakeClient),
-            patch.object(lm, "_debug_headed", return_value=True),
-            patch.object(lm, "time") as mock_time,
-        ):
-            out = lm._wait_login(180)
-        self.assertTrue(out["ok"])
-        # Grace comes before the verify that restarts headed as headless.
-        mock_time.sleep.assert_called_once_with(lm._HEADLESS_SETTLE_SEC)
-        self.assertEqual(len(FakeClient.seen_calls), 2)
+    async def test_fail_fast_when_disabled(self):
+        await self._call({"wait_for_login": False})
+        self.assertEqual(FakeClient.seen_calls, [{}])
 
-    def test_verify_miss_returns_login_required(self):
-        # Login succeeded, but the headless re-verify misses (flush too
-        # slow or logged out since): report login required, not success.
-        FakeClient._error_on_call = {2: LoginRequired("ยังไม่ล็อกอิน LINE")}
-        with (
-            patch.object(lm, "LineClient", FakeClient),
-            patch.object(lm, "_debug_headed", return_value=False),
-            patch.object(lm, "time"),
-        ):
-            out = lm._wait_login(10)
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["error"], "LoginRequired")
-        self.assertIn("next", out)
-
-    def test_timeout_becomes_login_required_envelope(self):
-        FakeClient._error = LoginRequired("ยังไม่ล็อกอิน LINE")
-        with (
-            patch.object(lm, "LineClient", FakeClient),
-            patch.object(lm, "_debug_headed", return_value=False),
-            patch.object(lm, "time"),
-        ):
-            out = lm._wait_login(10)
-        self.assertFalse(out["ok"])
-        self.assertEqual(out["error"], "LoginRequired")
-        self.assertIn("next", out)
+    async def test_login_required_becomes_envelope(self):
+        FakeClient._error = LoginRequired("not logged in to LINE")
+        payload = await self._call({})
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "LoginRequired")
+        self.assertIn("next", payload)
 
 
-class DebugHeadedTest(unittest.TestCase):
-    def test_headless_browser_is_not_headed(self):
-        with patch("line_ext_msg.chrome.is_headless", return_value=True):
-            self.assertFalse(lm._debug_headed())
+class LibraryEnvTest(unittest.TestCase):
+    """_configure_library must set this MCP's own env defaults."""
 
-    def test_headed_browser_is_headed(self):
-        with patch("line_ext_msg.chrome.is_headless", return_value=False):
-            self.assertTrue(lm._debug_headed())
+    KEYS = ("LINE_EXT_MSG_PROFILE", "LINE_EXT_MSG_PORT", "LINE_EXT_MSG_DIALOG_TITLE")
 
-    def test_probe_error_maps_to_headed(self):
-        with patch(
-            "line_ext_msg.chrome.is_headless", side_effect=RuntimeError("no cdp")
-        ):
-            self.assertTrue(lm._debug_headed())
+    def setUp(self):
+        self._saved = {key: os.environ.get(key) for key in self.KEYS}
+
+    def tearDown(self):
+        for key, value in self._saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def test_defaults(self):
+        from line_desktop_mcp import server
+
+        for key in self.KEYS:
+            os.environ.pop(key, None)
+        server._configure_library()
+        self.assertTrue(os.environ["LINE_EXT_MSG_PROFILE"].endswith("line-desktop-mcp"))
+        self.assertEqual(os.environ["LINE_EXT_MSG_PORT"], "9223")
+        self.assertEqual(os.environ["LINE_EXT_MSG_DIALOG_TITLE"], "Line Desktop MCP")
+
+    def test_existing_values_are_preserved(self):
+        from line_desktop_mcp import server
+
+        os.environ["LINE_EXT_MSG_PROFILE"] = r"C:\custom\profile"
+        os.environ["LINE_EXT_MSG_PORT"] = "9999"
+        os.environ["LINE_EXT_MSG_DIALOG_TITLE"] = "Custom Title"
+        server._configure_library()
+        self.assertEqual(os.environ["LINE_EXT_MSG_PROFILE"], r"C:\custom\profile")
+        self.assertEqual(os.environ["LINE_EXT_MSG_PORT"], "9999")
+        self.assertEqual(os.environ["LINE_EXT_MSG_DIALOG_TITLE"], "Custom Title")
+
+
+class GetMessagesMediaTest(unittest.IsolatedAsyncioTestCase):
+    """include_media must reach upstream as the 2.0 `with_media` kwarg."""
+
+    def setUp(self):
+        FakeClient.messages_calls = []
+
+    async def test_include_media_maps_to_with_media(self):
+        from fastmcp import Client
+
+        from line_desktop_mcp.server import mcp
+
+        with patch.object(lm, "LineClient", FakeClient):
+            async with Client(mcp) as client:
+                await client.call_tool("get_messages", {"include_media": True})
+        self.assertEqual(len(FakeClient.messages_calls), 1)
+        self.assertTrue(FakeClient.messages_calls[0]["with_media"])
+        self.assertNotIn("include_media_data", FakeClient.messages_calls[0])
 
 
 class SessionGateTest(unittest.TestCase):
@@ -187,6 +209,52 @@ class SessionGateTest(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["error"], "NeedsConfirmation")
         self.assertIn("next", out)
+
+
+class ToolTimeoutTest(unittest.TestCase):
+    """Lifecycle tools must run without a tool-level timeout.
+
+    FastMCP wraps a sync tool in anyio.fail_after, but the worker thread is
+    not preempted (abandon_on_cancel=False), so a timeout waits for the
+    blocking call to finish and then discards its result. Long setup flows
+    (install, QR login) must therefore stay untimed.
+    """
+
+    def _timeout(self, name: str):
+        from line_desktop_mcp.server import mcp
+
+        tool = asyncio.run(mcp.get_tool(name))
+        assert tool is not None
+        return tool.timeout
+
+    def test_lifecycle_tools_have_no_timeout(self):
+        for name in (
+            "line_status",
+            "list_rooms",
+            "get_messages",
+            "unread_digest",
+            "probe_session",
+            "clear_session",
+        ):
+            self.assertIsNone(self._timeout(name), name)
+
+    def test_batch_tools_keep_a_timeout(self):
+        for name in ("unread_full", "search_messages"):
+            self.assertEqual(self._timeout(name), 300.0, name)
+
+
+class ToolSurfaceTest(unittest.IsolatedAsyncioTestCase):
+    """wait_login was folded into line_status(wait_for_login=...)."""
+
+    async def test_wait_login_tool_is_gone(self):
+        from fastmcp import Client
+
+        from line_desktop_mcp.server import mcp
+
+        async with Client(mcp) as client:
+            names = {tool.name for tool in await client.list_tools()}
+        self.assertNotIn("wait_login", names)
+        self.assertIn("line_status", names)
 
 
 class CliTest(unittest.TestCase):

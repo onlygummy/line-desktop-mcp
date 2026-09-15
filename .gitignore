@@ -9,4 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
+# Lint and type-check caches
+.mypy_cache/
+.ruff_cache/
+
+# Runtime artifacts from line-ext-msg 2.0 (QR dialog files, chrome.pid,
+# saved probes). Paths are relative to the server working directory.
+session/
+
 opencode.json

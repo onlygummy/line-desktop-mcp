@@ -1,32 +1,29 @@
 """LINE session tools (single responsibility: session lifecycle only).
 
 Read tools live in tools/line_msg.py. This module owns the two session
-calls added in line-ext-msg 1.2.0: a safe read-only probe and one
-destructive wipe. Envelope shape (ok/data/error + next) matches the
-read tools so AI clients branch the same way.
+calls: a safe read-only probe and one destructive wipe. Envelope shape
+(ok/data/error + next) matches the read tools so AI clients branch the
+same way.
 """
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from line_ext_msg import LineClient, LineError
 from mcp.types import ToolAnnotations
 from pydantic import Field
-
-from line_ext_msg import LineClient, LineError
 
 from .line_msg import _fail, _ok
 
 # Read-only probe: safe to call any time, never asks for confirmation.
-READ_ONLY = ToolAnnotations(
-    readOnlyHint=True, idempotentHint=True, openWorldHint=True
-)
+READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True)
 
 # Destructive wipe: forces a fresh QR login, so clients must confirm first.
 DESTRUCTIVE = ToolAnnotations(
-    readOnlyHint=False,
-    destructiveHint=True,
-    idempotentHint=True,
-    openWorldHint=True,
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=True,
+    open_world_hint=True,
 )
 
 
@@ -51,7 +48,6 @@ def register_session_tools(mcp: FastMCP) -> None:
         title="Probe LINE session",
         tags={"line", "session", "read"},
         annotations=READ_ONLY,
-        timeout=120.0,
     )
     def probe_session() -> dict:
         """Check login state and redacted storage without changing anything.
@@ -69,7 +65,6 @@ def register_session_tools(mcp: FastMCP) -> None:
         title="Clear LINE session",
         tags={"line", "session", "destructive"},
         annotations=DESTRUCTIVE,
-        timeout=180.0,
     )
     def clear_session(
         confirm: Annotated[
@@ -87,7 +82,7 @@ def register_session_tools(mcp: FastMCP) -> None:
             confirm: Safety gate. Pass true only after the user agrees.
             backup: Keep a redacted probe file before wiping (default true).
 
-        Irreversible: the next call needs a fresh QR scan via wait_login.
+        Irreversible: the next call needs a fresh QR scan via line_status.
         """
         if not confirm:
             return _needs_confirm()
