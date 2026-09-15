@@ -2,7 +2,7 @@
 
 > Unofficial community project. Not affiliated with, endorsed by, or supported by LINE Corporation or LY Corporation. It reads your own logged-in account through the LINE Chrome Extension. Read tools are side-effect free; `clear_session` is the only destructive tool and needs explicit confirmation.
 
-An MCP server that lets an AI client read your LINE chats. It wraps `line-ext-msg==2.0`, drives a dedicated headless Chrome over CDP, and exposes LINE as MCP tools.
+An MCP server that lets an AI client read your LINE chats. It wraps `line-ext-msg>=2.0,<3`, drives a dedicated headless Chrome over CDP, and exposes LINE as MCP tools.
 
 ## Requirements
 
@@ -43,7 +43,7 @@ opencode:
 }
 ```
 
-`@latest` asks uvx for the newest published version and refreshes its cache on every launch, so you keep getting updates without editing the config. If you prefer a fixed version for reproducibility, use `line-desktop-mcp@1.2.0` instead.
+`@latest` asks uvx for the newest published version and refreshes its cache on every launch, so you keep getting updates without editing the config. If you prefer a fixed version for reproducibility, use `line-desktop-mcp@2.0.0` instead.
 
 ### 2. First run
 
@@ -143,7 +143,7 @@ Test a local wheel before release:
 
 ```bash
 uv build
-uvx --from ./dist/line_desktop_mcp-1.2.0-py3-none-any.whl line-desktop-mcp --help
+uvx --from ./dist/line_desktop_mcp-2.0.0-py3-none-any.whl line-desktop-mcp --help
 ```
 
 ### Tests

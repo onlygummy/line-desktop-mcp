@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
   "fastmcp>=4.0,<5",
-  "line-ext-msg==2.0",
+  "line-ext-msg>=2.0,<3",
 ]
 
 [project.scripts]

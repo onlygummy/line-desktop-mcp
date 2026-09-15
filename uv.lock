@@ -1001,7 +1001,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=4.0,<5" },
-    { name = "line-ext-msg", specifier = "==2.0" },
+    { name = "line-ext-msg", specifier = ">=2.0,<3" },
 ]
 
 [package.metadata.requires-dev]
