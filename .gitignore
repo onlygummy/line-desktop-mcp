@@ -13,8 +13,8 @@ wheels/
 .mypy_cache/
 .ruff_cache/
 
-# Runtime artifacts from line-ext-msg 2.0 (QR dialog files, chrome.pid,
-# saved probes). Paths are relative to the server working directory.
+# Runtime artifacts from line-ext-msg 3.x (QR files, chrome.pid, probes).
+# Paths are relative to the server working directory.
 session/
 
 opencode.json

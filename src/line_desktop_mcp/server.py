@@ -51,10 +51,12 @@ mcp = FastMCP(
     "line-desktop-mcp",
     instructions=(
         "Reads your own LINE chats through a dedicated headless Chrome "
-        "profile. Call line_status first: with its default wait_for_login=true "
-        "it installs the LINE extension if missing and waits for the QR login "
-        "in one continuous call. Read tools never write files. clear_session is "
-        "the only destructive tool and needs confirm=true."
+        "profile. Call line_status first: it installs the LINE extension if "
+        "missing and waits for the QR login in one continuous call. If it "
+        "reports LoginRequired there is no window open, so call it again with "
+        "the defaults to put a QR in front of the user; timeout_sec=0 is the "
+        "only non-blocking check. Read tools never write files. clear_session "
+        "is the only destructive tool and needs confirm=true."
     ),
 )
 
