@@ -14,7 +14,9 @@ authors = [
 ]
 dependencies = [
   "fastmcp>=4.0,<5",
-  "line-ext-msg>=2.0,<3",
+  # 3.1 is the first release with host login callbacks, per-room scan
+  # progress, a bounded login wait, and the deprecated clear_session alias.
+  "line-ext-msg>=3.1,<4",
 ]
 
 [project.scripts]
