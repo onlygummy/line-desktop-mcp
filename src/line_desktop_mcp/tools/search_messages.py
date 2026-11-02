@@ -14,7 +14,7 @@ from line_desktop_mcp import lookup, when
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.history import harvest
 from line_desktop_mcp.reader import LineReader
-from line_desktop_mcp.view import KIND_NAMES, known_kind, row_to_view
+from line_desktop_mcp.view import KIND_NAMES, known_kind, row_to_view, snippet
 
 ANNOTATIONS = ToolAnnotations(
     read_only_hint=False,
@@ -101,6 +101,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
 
         Text search only sees messages that have text: images, stickers, and
         sealed messages that could not be decrypted never match a `query`.
+        Each hit carries a `snippet` around the match when `query` was given.
         """
         reader.ensure_ready()
         text = query.strip() if query else None
@@ -158,6 +159,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             {
                 "chat": {"mid": row.get("chat_mid"), "name": row.get("chat_name")},
                 "message": row_to_view(row),
+                "snippet": snippet(row.get("text"), text) if text else None,
             }
             for row in rows
         ]

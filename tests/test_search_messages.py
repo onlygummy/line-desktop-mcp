@@ -354,3 +354,24 @@ def test_order_and_offset_page_through_hits(store: Archive) -> None:
     assert newest["truncated"] is True
     assert [hit["message"]["id"] for hit in oldest["hits"]] == ["m0", "m1"]
     assert [hit["message"]["id"] for hit in second["hits"]] == ["m1"]
+
+
+def test_hits_carry_a_snippet_around_the_match(store: Archive) -> None:
+    long_text = f"{'a' * 80} invoice {'b' * 80}"
+    store.upsert_messages([to_row(_msg("m1", long_text), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice")
+
+    hit = result["hits"][0]
+    assert "invoice" in hit["snippet"]
+    assert hit["snippet"].startswith("…")
+    assert hit["snippet"].endswith("…")
+    assert hit["message"]["text"] == long_text  # the full text is still there
+
+
+def test_a_kind_only_search_has_no_snippet(store: Archive) -> None:
+    store.upsert_messages([to_row(_msg("m1", text="", ct=1), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, kinds=["image"])
+
+    assert result["hits"][0]["snippet"] is None

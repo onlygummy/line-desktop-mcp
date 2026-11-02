@@ -47,12 +47,15 @@ A `query` only matches messages that have text: images, stickers, and sealed
 messages that could not be decrypted never match. Use `kinds` to find those.
 
 Each call returns `{ok, query, scope, filters, hits[{chat{mid,name},
-message{...}}], returned, truncated, chats_hit[{mid,name,hits}],
+message{...}, snippet}], returned, truncated, chats_hit[{mid,name,hits}],
 coverage{messages_scanned, messages_in_scope, messages_sealed, chats_total},
 api_pages}`.
 
 - `filters` echoes what was applied:
   `{chats, kinds, after, before, from{mid,name}, order, offset}`.
+- `snippet` is about 60 characters around the first match, with `…` where it
+  was cut. It is `null` when the search had no `query`. `message.text` still
+  carries the whole message.
 - `scope` is `archive` or `archive+api`.
 - `coverage.messages_scanned` counts the messages the text match could see. With
   no `query`, every in-scope message is a candidate, so it equals
