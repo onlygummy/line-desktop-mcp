@@ -16,16 +16,23 @@ def archive(tmp_path: Path) -> Archive:
     store.close()
 
 
-def _row(message_id: str, text: str, chat: str = "c1", ms: int = 1_000) -> dict:
+def _row(
+    message_id: str,
+    text: str,
+    chat: str = "c1",
+    ms: int = 1_000,
+    sender: str = "u1",
+    sealed: int = 0,
+) -> dict:
     return {
         "id": message_id,
         "chat_mid": chat,
-        "from_mid": "u1",
-        "from_name": "Soda",
+        "from_mid": sender,
+        "from_name": f"name-{sender}",
         "delivered_ms": ms,
         "kind": "text",
         "text": text,
-        "sealed": 0,
+        "sealed": sealed,
         "content_type": 0,
         "raw_json": "{}",
     }
@@ -83,9 +90,32 @@ def test_search_can_be_scoped_to_chats(archive: Archive) -> None:
 def test_search_can_be_limited_by_time(archive: Archive) -> None:
     archive.upsert_messages([_row("m1", "ticket", ms=1_000), _row("m2", "ticket", ms=5_000)])
 
-    hits = archive.search("ticket", limit=10, since_ms=3_000)
+    assert [row["id"] for row in archive.search("ticket", limit=10, after_ms=3_000)] == ["m2"]
+    assert [row["id"] for row in archive.search("ticket", limit=10, before_ms=3_000)] == ["m1"]
+
+
+def test_search_can_be_limited_by_sender(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "ticket", sender="u1"), _row("m2", "ticket", sender="u2")])
+
+    hits = archive.search("ticket", limit=10, from_mid="u2")
 
     assert [row["id"] for row in hits] == ["m2"]
+
+
+def test_search_can_return_oldest_first(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "ticket", ms=1_000), _row("m2", "ticket", ms=2_000)])
+
+    hits = archive.search("ticket", limit=10, newest_first=False)
+
+    assert [row["id"] for row in hits] == ["m1", "m2"]
+
+
+def test_search_can_skip_hits_for_paging(archive: Archive) -> None:
+    archive.upsert_messages([_row(f"m{i}", "ticket", ms=1_000 + i) for i in range(3)])
+
+    page = archive.search("ticket", limit=1, offset=1)
+
+    assert [row["id"] for row in page] == ["m1"]
 
 
 def test_search_returns_the_chat_name(archive: Archive) -> None:
@@ -103,14 +133,19 @@ def test_search_ignores_messages_without_text(archive: Archive) -> None:
     assert [row["id"] for row in archive.search("ticket", limit=10)] == ["m2"]
 
 
-def test_count_matches_what_search_would_scan(archive: Archive) -> None:
+def test_coverage_separates_scanned_from_in_scope(archive: Archive) -> None:
     archive.upsert_messages(
-        [_row("m1", "a", chat="c1", ms=1_000), _row("m2", "b", chat="c2", ms=5_000)]
+        [
+            _row("m1", "ticket", ms=5_000),
+            _row("m2", None, ms=1_000),
+            _row("m3", None, ms=2_000, sealed=1),
+        ]
     )
 
-    assert archive.count() == 2
-    assert archive.count(["c1"]) == 1
-    assert archive.count(since_ms=3_000) == 1
+    assert archive.coverage() == {"in_scope": 3, "scanned": 1, "sealed": 1}
+    assert archive.coverage(chat_mids=["c2"]) == {"in_scope": 0, "scanned": 0, "sealed": 0}
+    assert archive.coverage(after_ms=3_000) == {"in_scope": 1, "scanned": 1, "sealed": 0}
+    assert archive.coverage(from_mid="u9") == {"in_scope": 0, "scanned": 0, "sealed": 0}
 
 
 def test_oldest_returns_the_earliest_message(archive: Archive) -> None:

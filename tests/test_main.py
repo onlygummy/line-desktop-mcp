@@ -88,6 +88,11 @@ def test_search_messages_schema_and_description() -> None:
         "query",
         "chats",
         "limit",
+        "offset",
+        "after",
+        "before",
+        "from_sender",
+        "order",
         "since_days",
         "sync",
     }

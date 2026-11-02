@@ -79,6 +79,50 @@ def scope(reader: LineReader, archive: Archive, refs: list[str]) -> list[dict[st
     return chosen
 
 
+def sender(archive: Archive, ref: str, *, chat_mids: list[str] | None = None) -> dict[str, Any]:
+    """One archived sender by mid or name; ambiguity is reported, never guessed.
+
+    Only the archive is consulted. A sender with no archived message has no
+    hits to find, so asking LINE would add a request and change nothing.
+    """
+    rows = archive.senders(chat_mids)
+    if any(str(row.get("from_mid")) == ref for row in rows):
+        return {"mid": ref, "name": _latest_name(rows, ref)}
+
+    needle = ref.strip().casefold()
+    if not needle:
+        raise ToolError("`from_sender` must not be blank.")
+    for match in (
+        [row for row in rows if str(row.get("from_name") or "").casefold() == needle],
+        [row for row in rows if needle in str(row.get("from_name") or "").casefold()],
+    ):
+        if match:
+            return _one_sender(ref, match, rows)
+    raise ToolError(
+        f"No archived sender matches {ref!r}. Leave `from_sender` out to search "
+        "every sender, or read that chat first so LINE returns their name."
+    )
+
+
+def _one_sender(
+    ref: str, matches: list[dict[str, Any]], rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    mids = list(dict.fromkeys(str(row.get("from_mid")) for row in matches))
+    if len(mids) > 1:
+        listing = ", ".join(f"{_latest_name(rows, mid)} ({mid})" for mid in mids[:10])
+        raise ToolError(f"{len(mids)} senders match {ref!r}: {listing}. Retry with the mid.")
+    mid = mids[0]
+    return {"mid": mid, "name": _latest_name(rows, mid)}
+
+
+def _latest_name(rows: list[dict[str, Any]], mid: str) -> str | None:
+    """The name on that sender's most recent archived message, if any."""
+    for row in rows:
+        if str(row.get("from_mid")) == mid and row.get("from_name"):
+            return str(row["from_name"])
+    return None
+
+
 def _ambiguous(ref: str, candidates: list[dict[str, Any]]) -> str:
     listing = ", ".join(f"{item.get('name')} ({item.get('mid')})" for item in candidates[:10])
     return f"{len(candidates)} chats match {ref!r}: {listing}. Retry with the mid."
