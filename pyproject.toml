@@ -1,0 +1,76 @@
+[project]
+name = "line-desktop-mcp"
+version = "4.0.0"
+description = "Read-only MCP server for LINE, built on the OkLine protocol SDK"
+readme = "README.md"
+authors = [
+    { name = "onlygummy", email = "siwakorn.sosanui@gmail.com" }
+]
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "line",
+    "line-messenger",
+    "okline",
+    "fastmcp",
+    "qr-login",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Chat",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastmcp>=4.1,<5",
+    # [qr] pulls in `qrcode`, which the Tk login window renders as a matrix.
+    "okline[qr]>=2.7,<3",
+]
+
+[project.scripts]
+line-desktop-mcp = "line_desktop_mcp.main:main"
+
+[project.urls]
+Homepage = "https://github.com/onlygummy/line-desktop-mcp"
+Repository = "https://github.com/onlygummy/line-desktop-mcp"
+Issues = "https://github.com/onlygummy/line-desktop-mcp/issues"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/line_desktop_mcp"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

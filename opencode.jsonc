@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "line-desktop-mcp": {
+        "type": "local",
+        "command": ["uv", "run", "line-desktop-mcp"],
+        "cwd": ".",
+      },
+    },
+  },
+}
