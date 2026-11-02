@@ -235,12 +235,12 @@ def test_rejected_login_surfaces_the_line_message() -> None:
 
 
 def test_second_login_is_refused_while_one_runs() -> None:
-    login._LOGIN_LOCK.acquire()
+    login.SESSION_LOCK.acquire()
     try:
         with pytest.raises(ToolError, match="already running"):
             login.run_login(30)
     finally:
-        login._LOGIN_LOCK.release()
+        login.SESSION_LOCK.release()
 
 
 def test_login_never_writes_to_stdout(capsys: pytest.CaptureFixture[str]) -> None:

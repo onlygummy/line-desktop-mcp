@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -24,11 +25,26 @@ class FakeE2ee:
 
 
 class FakeApi:
-    def __init__(self, *, e2ee_ready: bool = True, fail_profile: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        e2ee_ready: bool = True,
+        fail_profile: Exception | None = None,
+        fail_logout: Exception | None = None,
+    ) -> None:
         self.e2ee = FakeE2ee(e2ee_ready)
         self.closed = False
         self._fail_profile = fail_profile
+        self._fail_logout = fail_logout
         self.profile = {"mid": "u1", "displayName": "Soda"}
+        self.tokens = SimpleNamespace(access_token="token")
+        self.revoked = False
+        self.auth = SimpleNamespace(logout=self._logout)
+
+    def _logout(self) -> None:
+        self.revoked = True
+        if self._fail_logout is not None:
+            raise self._fail_logout
 
     def close(self) -> None:
         self.closed = True
@@ -236,6 +252,67 @@ def test_an_unresolvable_chat_keeps_the_mid_stub(session_file: Path) -> None:
     (chat,) = _reader(session_file, api=api).directory()
 
     assert chat["name"] == "Chat u9abcd"
+
+
+def test_revoke_invalidates_the_session_on_line(session_file: Path) -> None:
+    api = FakeApi()
+    line = _reader(session_file, api=api)
+
+    result = line.revoke()
+
+    assert result == {"remote": "revoked", "error": None}
+    assert api.revoked is True
+
+
+def test_revoke_reports_a_failed_request_without_raising(session_file: Path) -> None:
+    api = FakeApi(fail_logout=LineTransportError("offline"))
+    line = _reader(session_file, api=api)
+
+    result = line.revoke()
+
+    assert result["remote"] == "failed"
+    assert "offline" in result["error"]
+
+
+def test_revoke_without_a_session_is_skipped(tmp_path: Path) -> None:
+    line = _reader(tmp_path / "absent.json")
+
+    assert line.revoke()["remote"] == "skipped"
+
+
+def test_revoke_without_a_token_is_skipped(session_file: Path) -> None:
+    api = FakeApi()
+    api.tokens = SimpleNamespace(access_token="")
+    line = _reader(session_file, api=api)
+
+    result = line.revoke()
+
+    assert result == {"remote": "skipped", "error": None}
+    assert api.revoked is False
+
+
+def test_shutdown_does_not_cut_an_in_flight_call(session_file: Path) -> None:
+    api = FakeApi()
+    line = _reader(session_file, api=api)
+    line.ensure_ready()
+    started = threading.Event()
+    order: list[str] = []
+
+    def work(_api):
+        started.set()
+        time.sleep(0.05)
+        order.append("call")
+
+    thread = threading.Thread(target=lambda: line._call(work))
+    thread.start()
+    started.wait(2)
+
+    line.shutdown()
+    order.append("shutdown")
+    thread.join(5)
+
+    assert order == ["call", "shutdown"]
+    assert api.closed is True
 
 
 def test_calls_are_serialised(session_file: Path) -> None:

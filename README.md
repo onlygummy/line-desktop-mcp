@@ -1,7 +1,8 @@
 # line-desktop-mcp
 
 An MCP server that reads your own LINE chats. It logs in by scanning a QR code in a Tk window,
-lists chats, and returns messages with their images. It uses the unofficial OkLine SDK and FastMCP.
+lists chats, returns messages with their images, and can sign out again. It uses the unofficial
+OkLine SDK and FastMCP.
 Version 4.0.0. It is not affiliated with LINE Corporation or LY Corporation.
 
 > **Read this first: Terms of Service.** Automating a personal LINE account
@@ -15,6 +16,7 @@ Version 4.0.0. It is not affiliated with LINE Corporation or LY Corporation.
 ## What it does
 
 - `login` scans a QR code and saves the LINE session.
+- `logout` ends the session and deletes the saved login; the archive is kept.
 - `list_chats` lists chats with name, kind, unread count, and a last preview.
 - `get_messages` reads one chat and returns its messages, with images attached.
 - `search_messages` searches the local archive for text across chats.

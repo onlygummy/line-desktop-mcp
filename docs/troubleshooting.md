@@ -8,8 +8,11 @@ Fixes for the errors the server and its dependencies report.
   the executable path.
 - **Login times out.** Call `login` again and scan promptly, or raise
   `timeout_sec` (up to 900).
-- **LINE rejects the login (code `10201` and similar).** Delete the session file
-  and log in from scratch with `login`.
+- **LINE rejects the login (code `10201` and similar).** Call `logout`, then
+  `login` to scan a fresh QR code.
+- **`No LINE session yet`.** You called `logout`, or the session file was
+  deleted. Call `login`; the archive is still on disk, but nothing can read it
+  without a session.
 - **No window appears.** The Python build lacks Tk. The QR is still written to
   `qr.txt` beside the session file, and the result reports `ui: "text"`.
 - **`REQUEST_INVALID_HMAC` (code `10005`).** The bundled WASM or bridge could
