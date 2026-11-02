@@ -417,7 +417,9 @@ def _peer_mids(chat: Mapping[str, Any], chat_mid: str, me: str) -> list[str]:
         group = extra.get("groupExtra") if isinstance(extra, Mapping) else None
         members = group.get("memberMids") if isinstance(group, Mapping) else None
     peers = [str(mid) for mid in (members or []) if mid and str(mid) != me]
-    if not peers and chat_mid.startswith("u"):
+    if not peers and chat_mid[:1].lower() == "u":
+        # A direct chat's mid is the other user's mid. Real mids start with an
+        # uppercase `U`, the archived ones this was first written against did not.
         peers = [chat_mid]
     return peers
 

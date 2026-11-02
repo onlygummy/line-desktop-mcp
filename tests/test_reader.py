@@ -242,6 +242,20 @@ def test_a_named_group_keeps_its_line_name(session_file: Path) -> None:
     assert chat["name"] == "หอพักหมวกแดงSCC"
 
 
+def test_an_uppercase_direct_chat_mid_is_resolved(session_file: Path) -> None:
+    """Real LINE user mids start with `U`; only the lowercase form was handled."""
+    mid = "Utwq4_6SXyTZ0wbGHBJArsn0vQ3P2AyJ42u"
+    api = DirectoryApi(
+        boxes=[_box(mid)],
+        chats=[{"chatMid": mid, "type": 2}],
+        contacts={mid: "Ut"},
+    )
+
+    (chat,) = _reader(session_file, api=api).directory()
+
+    assert chat["name"] == "Ut"
+
+
 def test_an_unresolvable_chat_keeps_the_mid_stub(session_file: Path) -> None:
     api = DirectoryApi(
         boxes=[_box("u9abcdef")],
