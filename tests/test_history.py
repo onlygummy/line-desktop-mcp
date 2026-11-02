@@ -38,24 +38,37 @@ def test_harvest_seeds_from_the_newest_page_when_empty(store: Archive) -> None:
     assert [row["id"] for row in store.messages("c1", limit=10)] == ["m2", "m1"]
 
 
+def test_harvest_catches_up_before_paging_back(store: Archive) -> None:
+    """A chat archived days ago may have new messages; going back would miss them."""
+    store.upsert_messages([to_row(_msg("m1", 1_000), {"u1": "Soda"}, "c1")])
+    reader = FakeReader(recent=[_msg("m2", 2_000)], previous={})
+
+    harvest(reader, store, "c1")
+
+    assert [row["id"] for row in store.messages("c1", limit=10)] == ["m2", "m1"]
+    assert reader.calls[0][0] == "recent"
+
+
 def test_harvest_pages_back_from_the_oldest_known_message(store: Archive) -> None:
     store.upsert_messages([to_row(_msg("m2", 2_000), {"u1": "Soda"}, "c1")])
     reader = FakeReader(recent=[], previous={"m2": [_msg("m1", 1_000)]})
 
     result = harvest(reader, store, "c1")
 
-    assert result["pages"] == 1
+    assert result["pages"] == 2  # the newest page, then one older page
     assert [row["id"] for row in store.messages("c1", limit=10)] == ["m2", "m1"]
-    assert reader.calls[0] == ("previous", "m2")
+    assert reader.calls[1] == ("previous", "m2")
 
 
-def test_harvest_stops_on_an_empty_page(store: Archive) -> None:
+def test_harvest_stops_when_the_newest_page_is_empty_and_nothing_is_older(
+    store: Archive,
+) -> None:
     store.upsert_messages([to_row(_msg("m9", 9_000), {"u1": "Soda"}, "c1")])
     reader = FakeReader(previous={})
 
     result = harvest(reader, store, "c1", pages=3)
 
-    assert result == {"pages": 0, "messages": 0}
+    assert result == {"pages": 1, "messages": 0}
 
 
 def test_harvest_stops_when_a_page_adds_nothing_new(store: Archive) -> None:
@@ -64,7 +77,7 @@ def test_harvest_stops_when_a_page_adds_nothing_new(store: Archive) -> None:
 
     result = harvest(reader, store, "c1", pages=3)
 
-    assert result == {"pages": 1, "messages": 0}
+    assert result == {"pages": 2, "messages": 0}
 
 
 def test_harvest_resolves_sender_names_before_archiving(store: Archive) -> None:

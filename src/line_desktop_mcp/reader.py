@@ -233,8 +233,11 @@ class LineReader:
 
         mids = [str(box.get("id")) for box in entries if box.get("id")]
         chats = self._chats_by_mid(mids)
-        names = self.contact_names()
         me = str(self.profile().get("mid") or "")
+        # LINE leaves `chatName` empty on a direct chat (and often on a room),
+        # so the peer mids are resolved up front. Contacts cover most of them;
+        # only the rest costs a request.
+        names = self.resolve_names(_unnamed_peers(chats, me))
 
         directory: list[dict[str, Any]] = []
         for box in entries:
@@ -243,7 +246,7 @@ class LineReader:
                 continue
             chat = chats.get(mid) or {}
             last = _first_message(box)
-            name = str(chat.get("chatName") or "").strip()
+            name = _chat_name(chat) or _peer_name(chat, mid, names, me)
             if not name:
                 sender = str(last.get("from") or "")
                 if sender and sender != me:
@@ -350,6 +353,46 @@ def _message_ms(message: Mapping[str, Any]) -> int:
         return int(message.get("deliveredTime") or message.get("createdTime") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _chat_name(chat: Mapping[str, Any]) -> str:
+    return str(chat.get("chatName") or "").strip()
+
+
+def _unnamed_peers(chats: Mapping[str, Mapping[str, Any]], me: str) -> list[str]:
+    """Mids that could name the chats LINE returned without a `chatName`."""
+    peers: list[str] = []
+    for mid, chat in chats.items():
+        if _chat_name(chat):
+            continue
+        peers.extend(_peer_mids(chat, mid, me))
+    return peers
+
+
+def _peer_mids(chat: Mapping[str, Any], chat_mid: str, me: str) -> list[str]:
+    """Candidate mids for one chat: its members, or the other side of a DM.
+
+    Groups keep their members in `extra.groupExtra.memberMids`; rooms and direct
+    chats carry a top-level `memberMids`. A direct chat with neither is named
+    after the mid itself, because LINE uses the peer's user mid as the chat mid.
+    """
+    members = chat.get("memberMids")
+    if not isinstance(members, list):
+        extra = chat.get("extra")
+        group = extra.get("groupExtra") if isinstance(extra, Mapping) else None
+        members = group.get("memberMids") if isinstance(group, Mapping) else None
+    peers = [str(mid) for mid in (members or []) if mid and str(mid) != me]
+    if not peers and chat_mid.startswith("u"):
+        peers = [chat_mid]
+    return peers
+
+
+def _peer_name(chat: Mapping[str, Any], chat_mid: str, names: Mapping[str, str], me: str) -> str:
+    for mid in _peer_mids(chat, chat_mid, me):
+        name = names.get(mid)
+        if name:
+            return name
+    return ""
 
 
 def _chat_kind(chat_type: Any, mid: str) -> str:

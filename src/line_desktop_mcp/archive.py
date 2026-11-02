@@ -99,6 +99,12 @@ class Archive:
 
     # -- chats --------------------------------------------------------------
     def upsert_chats(self, chats: Iterable[Mapping[str, Any]]) -> None:
+        """Save a chat listing.
+
+        The `WHERE` keeps an unchanged listing a read instead of a write: read
+        tools persist the directory on every call, and rewriting a hundred rows
+        each time would only churn the WAL.
+        """
         rows = [
             (
                 str(chat.get("mid") or ""),
@@ -125,6 +131,10 @@ class Archive:
                     unread  = excluded.unread,
                     last_ms = COALESCE(excluded.last_ms, chats.last_ms),
                     updated_ms = excluded.updated_ms
+                WHERE chats.name    IS NOT COALESCE(NULLIF(excluded.name, ''), chats.name)
+                   OR chats.kind    IS NOT COALESCE(excluded.kind, chats.kind)
+                   OR chats.unread  IS NOT excluded.unread
+                   OR chats.last_ms IS NOT COALESCE(excluded.last_ms, chats.last_ms)
                 """,
                 rows,
             )
@@ -134,16 +144,6 @@ class Archive:
         with self._lock:
             cur = self._connection().execute(
                 "SELECT mid, name, kind, unread, last_ms FROM chats ORDER BY last_ms DESC"
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-    def find_chats(self, text: str) -> list[dict[str, Any]]:
-        needle = f"%{(text or '').strip().lower()}%"
-        with self._lock:
-            cur = self._connection().execute(
-                "SELECT mid, name, kind, unread, last_ms FROM chats "
-                "WHERE lower(COALESCE(name, '')) LIKE ? ORDER BY last_ms DESC",
-                (needle,),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -180,7 +180,7 @@ class Archive:
                 ON CONFLICT(id) DO UPDATE SET
                     text      = COALESCE(excluded.text, messages.text),
                     sealed    = CASE WHEN messages.sealed = 0 THEN 0 ELSE excluded.sealed END,
-                    from_name = COALESCE(messages.from_name, excluded.from_name),
+                    from_name = COALESCE(NULLIF(excluded.from_name, ''), messages.from_name),
                     raw_json  = excluded.raw_json,
                     fetched_ms = excluded.fetched_ms
                 """,

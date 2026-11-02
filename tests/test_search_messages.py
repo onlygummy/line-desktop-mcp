@@ -62,6 +62,15 @@ def test_reports_coverage_and_no_api_work_by_default(store: Archive) -> None:
     assert result["coverage"]["chats_total"] == 1
 
 
+def test_a_hit_is_named_even_when_no_listing_was_archived(store: Archive) -> None:
+    """The search reads the directory first, so the join can label the hit."""
+    store.upsert_messages([to_row(_msg("m1", "invoice"), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice")
+
+    assert result["hits"][0]["chat"]["name"] == "Family"
+
+
 def test_returns_nothing_when_the_text_is_absent(store: Archive) -> None:
     store.upsert_messages([to_row(_msg("m1", "hello"), {"u1": "Soda"}, "c1")])
 
@@ -131,7 +140,7 @@ def test_sync_harvests_older_messages_before_searching(store: Archive) -> None:
     result = _call(reader, store, query="invoice", chats=["Family"], sync=True)
 
     assert result["scope"] == "archive+api"
-    assert result["api_pages"] == 1
+    assert result["api_pages"] == 2  # the newest page, then one older page
     assert [hit["message"]["id"] for hit in result["hits"]] == ["m2", "m1", "m0"]
 
 
@@ -141,5 +150,5 @@ def test_sync_still_searches_when_line_has_nothing_more(store: Archive) -> None:
 
     result = _call(reader, store, query="invoice", chats=["Family"], sync=True)
 
-    assert result["api_pages"] == 0
+    assert result["api_pages"] == 1  # the newest page, which brought nothing new
     assert result["returned"] == 1

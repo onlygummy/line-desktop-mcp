@@ -1,4 +1,4 @@
-"""Page backwards through LINE and archive what comes back.
+"""Page through LINE and archive what comes back.
 
 Single responsibility: growing the archive. `search_messages(sync=True)` uses it
 before searching, so a search can reach further back than what was read already.
@@ -26,28 +26,27 @@ def harvest(
     pages: int = DEFAULT_PAGES,
     page_size: int = PAGE_SIZE,
 ) -> dict[str, int]:
-    """Fetch older messages and store them; returns how much work was done.
+    """Bring one chat up to date, then page backwards; returns what it cost.
 
-    Starts from the oldest message already archived, or from the newest page
-    when the chat is unknown. Stops early on an empty page or when a page adds
-    nothing new, so a chat that ended yesterday costs one request.
+    The newest page is always fetched first. Paging only backwards would never
+    see a message that arrived after the chat was archived, so a search would
+    silently miss it.
+
+    Older pages start from the oldest message already archived, and the walk
+    stops on an empty page or on one that adds nothing new, so a chat that ended
+    yesterday costs the newest page plus one. `pages` counts every LINE page
+    fetched, newest included.
     """
-    total = 0
-    oldest = archive.oldest(chat_mid)
+    total = _store(reader, archive, chat_mid, reader.recent(chat_mid, min(page_size, PAGE_SIZE)))
+    used = 1
 
-    if oldest is None:
-        fresh = reader.recent(chat_mid, min(page_size, PAGE_SIZE))
-        if not fresh:
-            return {"pages": 0, "messages": 0}
-        total += _store(reader, archive, chat_mid, fresh)
-        cursor = fresh[-1]
-        cursor_id = str(cursor.get("id") or "")
-        cursor_ms = _ms(cursor)
-    else:
-        cursor_id = str(oldest.get("id") or "")
-        cursor_ms = int(oldest.get("delivered_ms") or 0)
+    cursor = archive.oldest(chat_mid)
+    if cursor is None:
+        return {"pages": used, "messages": total}
 
-    used = 0
+    cursor_id = str(cursor.get("id") or "")
+    cursor_ms = int(cursor.get("delivered_ms") or 0)
+
     for _ in range(max(0, pages)):
         page = reader.previous(chat_mid, cursor_id, cursor_ms, page_size)
         if not page:
@@ -55,9 +54,9 @@ def harvest(
         used += 1
         before = total
         total += _store(reader, archive, chat_mid, page)
-        cursor = page[-1]
-        cursor_id = str(cursor.get("id") or "")
-        cursor_ms = _ms(cursor)
+        last = page[-1]
+        cursor_id = str(last.get("id") or "")
+        cursor_ms = _ms(last)
         if total == before:
             break
 

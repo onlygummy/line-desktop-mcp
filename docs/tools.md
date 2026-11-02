@@ -59,13 +59,15 @@ list_chats(unread_only: bool = False, query: str | None = None, limit: int = 30)
 - `unread_only` keeps only chats with unread messages.
 - `query` is a case-insensitive substring filter on the chat name.
 - `limit` is 1 to 100.
-- The listing is cached for five minutes and then written to the archive. When
+- The listing is cached for five minutes. Every tool that reads the directory
+  saves it to the archive, so names and unread counts survive a cold start; when
   LINE is unreachable, the call still answers from the archive with `stale: true`.
 - Nothing is marked as read.
 
 The result is `{ok, chats[], returned, unread_total, stale}`. Each chat is
 `{mid, name, kind, unread, last_ms, last_preview}`. `kind` is `group`, `room`, or
-`dm`. A direct chat is named after the other person.
+`dm`. A direct chat is named after the other person. A chat LINE leaves unnamed is
+named after one of its members, and `Chat <mid>` is the last resort.
 
 ## get_messages
 
@@ -110,9 +112,11 @@ search_messages(
   same way `get_messages` does.
 - `limit` is 1 to 100 hits, newest first.
 - `since_days` keeps only messages from the last N days, from 1 to 3650.
-- `sync=true` pages older messages from LINE for the named chats before
-  searching, at most three pages per chat. It needs `chats`; without them the
-  call is refused, because paging every chat would take minutes.
+- `sync=true` reads the newest page of the named chats and then pages older
+  messages from LINE before searching, at most three older pages per chat. The
+  newest page is read first so a message that arrived after the chat was
+  archived can still match. `sync` needs `chats`; without them the call is
+  refused, because paging every chat would take minutes.
 - Only plain text is searched. Images, stickers, and sealed messages that could
   not be decrypted never match. There is no fuzzy matching and no spelling
   tolerance.
@@ -127,4 +131,4 @@ api_pages}`.
   something does not exist.
 - `chats_hit` tells you which chat mentioned the text, so you do not have to
   group the hits.
-- `api_pages` reports how many older pages `sync` actually fetched.
+- `api_pages` reports how many LINE pages `sync` fetched, newest page included.
