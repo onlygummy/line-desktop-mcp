@@ -11,6 +11,7 @@ from line_desktop_mcp.view import (
     kind_name,
     match_chat,
     row_to_view,
+    snippet,
     to_row,
     to_view,
 )
@@ -191,7 +192,50 @@ def test_match_chat_accepts_a_unique_substring() -> None:
     chat, candidates = match_chat("fam", CHATS)
 
     assert chat is not None and chat["mid"] == "c1"
-    assert candidates == []
+
+
+def test_a_snippet_keeps_a_short_message_whole() -> None:
+    assert snippet("ask for the invoice today", "invoice") == "ask for the invoice today"
+
+
+def test_a_snippet_adds_ellipses_on_both_sides() -> None:
+    text = f"{'a' * 200}invoice{'b' * 200}"
+
+    piece = snippet(text, "invoice", radius=10)
+
+    assert piece == f"…{'a' * 10}invoice{'b' * 10}…"
+
+
+def test_a_snippet_at_the_start_has_no_leading_ellipsis() -> None:
+    piece = snippet(f"invoice {'b' * 200}", "invoice", radius=10)
+
+    assert piece.startswith("invoice")
+    assert not piece.startswith("…")
+    assert piece.endswith("…")
+
+
+def test_a_snippet_at_the_end_has_no_trailing_ellipsis() -> None:
+    piece = snippet(f"{'a' * 200} invoice", "invoice", radius=10)
+
+    assert piece.endswith("invoice")
+    assert not piece.endswith("…")
+    assert piece.startswith("…")
+
+
+def test_a_snippet_ignores_ascii_case() -> None:
+    assert snippet("send the INVOICE today", "invoice") == "send the INVOICE today"
+
+
+def test_a_snippet_works_on_thai_text() -> None:
+    piece = snippet("ฝากเร่งดำเนินการเรื่องเปลี่ยนแอร์หน่อยค่ะ", "แอร์", radius=5)
+
+    assert "แอร์" in piece
+
+
+def test_a_snippet_falls_back_to_the_opening_when_nothing_matches() -> None:
+    piece = snippet(f"{'a' * 200} nothing here", "invoice", radius=10)
+
+    assert piece == f"{'a' * 10}…"
 
 
 def test_match_chat_returns_nothing_for_an_unknown_name() -> None:

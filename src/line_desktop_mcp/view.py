@@ -42,6 +42,30 @@ def known_kind(name: str) -> bool:
     return lowered in KIND_NAMES or (lowered.startswith("type") and lowered[4:].isdigit())
 
 
+def snippet(text: str | None, needle: str, radius: int = 60) -> str | None:
+    """A short window around the first match, with ellipses where it was cut.
+
+    The archive keeps whole messages, but a hit only needs enough context to
+    recognise it. `radius` counts characters on each side of the match; a
+    message with no match falls back to its opening characters.
+    """
+    if not text or not needle:
+        return None
+    index = text.lower().find(needle.lower())
+    if index < 0:
+        index, width = 0, 0
+    else:
+        width = len(needle)
+    start = max(0, index - radius)
+    end = min(len(text), index + width + radius)
+    piece = text[start:end].strip()
+    if start > 0:
+        piece = f"…{piece}"
+    if end < len(text):
+        piece = f"{piece}…"
+    return piece or None
+
+
 def iso_time(epoch_ms: Any) -> str | None:
     """Epoch milliseconds to a local ISO 8601 string (what a model reads best).
 
