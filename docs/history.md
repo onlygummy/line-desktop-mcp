@@ -18,5 +18,5 @@ repository.
 
 ## After v4
 
-The tool surface is `login`, `logout`, `list_chats`, `get_messages`, and
-`search_messages`. See the [tool reference](tools.md) for their behaviour.
+The tool surface is `login`, `logout`, `list_chats`, `get_messages`,
+`search_messages`, and `unread`. See the [tool reference](tools.md) for their behaviour.

@@ -33,17 +33,24 @@ def directory(
     return chats
 
 
+def directory_with_state(
+    reader: LineReader, archive: Archive, *, refresh: bool = False
+) -> tuple[list[dict[str, Any]], bool]:
+    """Chats, plus whether they came from the archive instead of LINE."""
+    try:
+        return directory(reader, archive, refresh=refresh), False
+    except ToolError:
+        archived = archive.chats()
+        if archived:
+            return archived, True
+        raise
+
+
 def directory_or_archive(
     reader: LineReader, archive: Archive, *, refresh: bool = False
 ) -> list[dict[str, Any]]:
     """Chats from LINE, or from the archive when LINE cannot be reached."""
-    try:
-        return directory(reader, archive, refresh=refresh)
-    except ToolError:
-        archived = archive.chats()
-        if archived:
-            return archived
-        raise
+    return directory_with_state(reader, archive, refresh=refresh)[0]
 
 
 def resolve(reader: LineReader, archive: Archive, ref: str) -> dict[str, Any]:
