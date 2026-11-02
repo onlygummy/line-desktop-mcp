@@ -14,7 +14,7 @@ from line_desktop_mcp import lookup, when
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.history import harvest
 from line_desktop_mcp.reader import LineReader
-from line_desktop_mcp.view import row_to_view
+from line_desktop_mcp.view import KIND_NAMES, known_kind, row_to_view
 
 ANNOTATIONS = ToolAnnotations(
     read_only_hint=False,
@@ -33,9 +33,14 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
     )
     def search_messages(
         query: Annotated[
-            str,
-            Field(min_length=1, description="Text to look for; case-insensitive substring."),
-        ],
+            str | None,
+            "Text to look for; case-insensitive substring. Omit it to search by "
+            "`kinds` alone, for example every image.",
+        ] = None,
+        kinds: Annotated[
+            list[str] | None,
+            "Message kinds to keep, such as `image`, `file`, or `sticker`.",
+        ] = None,
         chats: Annotated[
             list[str] | None,
             "Chat mids or names to search. Omit to search everything archived.",
@@ -72,7 +77,11 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "first (slower; requires chats).",
         ] = False,
     ) -> dict[str, Any]:
-        """Search archived messages for a piece of text.
+        """Search archived messages for text, or for a message kind.
+
+        Pass `query` to match text, `kinds` to match what a message is, or
+        both. `kinds=["image"]` with no `query` is how you find photos and
+        files, which have no text to match.
 
         Searches the local archive, which holds only the messages this server
         has read. Read `coverage` before concluding that something does not
@@ -90,12 +99,14 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         `sync=true` to read the newest page of those chats and page older
         messages from LINE first (at most three older pages per chat).
 
-        Only plain text is searched: images, stickers, and sealed messages that
-        could not be decrypted are not matched.
+        Text search only sees messages that have text: images, stickers, and
+        sealed messages that could not be decrypted never match a `query`.
         """
         reader.ensure_ready()
-        if not query.strip():
-            raise ToolError("`query` must not be empty.")
+        text = query.strip() if query else None
+        kinds = _kinds(kinds)
+        if not text and not kinds:
+            raise ToolError("Provide `query`, `kinds`, or both.")
 
         # Read the directory first: it saves chat names into the archive, so the
         # join below can label every hit even when `list_chats` was never called.
@@ -122,7 +133,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         from_mid = sender["mid"] if sender else None
 
         rows = archive.search(
-            query,
+            text,
             # One extra row is how we know another page exists; the archive
             # itself never has to think about paging.
             limit=limit + 1,
@@ -131,12 +142,17 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             after_ms=after_ms,
             before_ms=before_ms,
             from_mid=from_mid,
+            kinds=kinds,
             newest_first=order != "oldest",
         )
         truncated = len(rows) > limit
         rows = rows[:limit]
         coverage = archive.coverage(
-            chat_mids=chat_mids, after_ms=after_ms, before_ms=before_ms, from_mid=from_mid
+            chat_mids=chat_mids,
+            after_ms=after_ms,
+            before_ms=before_ms,
+            from_mid=from_mid,
+            kinds=kinds,
         )
         hits = [
             {
@@ -152,6 +168,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "scope": "archive+api" if sync else "archive",
             "filters": {
                 "chats": chat_mids,
+                "kinds": kinds,
                 "after": after,
                 "before": before,
                 "from": sender,
@@ -163,7 +180,9 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "truncated": truncated,
             "chats_hit": _chats_hit(rows),
             "coverage": {
-                "messages_scanned": coverage["scanned"],
+                # Without a text query every in-scope message is a candidate,
+                # so `scanned` would read as zero and mean nothing.
+                "messages_scanned": coverage["scanned"] if text else coverage["in_scope"],
                 "messages_in_scope": coverage["in_scope"],
                 "messages_sealed": coverage["sealed"],
                 "chats_total": len(directory),
@@ -193,3 +212,15 @@ def _since_ms(days: int | None) -> int | None:
     if not days:
         return None
     return int(time.time() * 1000) - int(days) * 86_400_000
+
+
+def _kinds(values: list[str] | None) -> list[str] | None:
+    """Normalise a `kinds` filter; an unknown name is refused, not ignored."""
+    if not values:
+        return None
+    cleaned = [value.strip().lower() for value in values if value and value.strip()]
+    unknown = [value for value in cleaned if not known_kind(value)]
+    if unknown:
+        allowed = ", ".join(sorted(KIND_NAMES))
+        raise ToolError(f"Unknown kind(s): {', '.join(unknown)}. Use one of {allowed}, or typeN.")
+    return list(dict.fromkeys(cleaned)) or None

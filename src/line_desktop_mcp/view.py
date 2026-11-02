@@ -29,6 +29,19 @@ def kind_name(content_type: Any) -> str:
     return "text" if value is ContentType.NONE else value.name.lower()
 
 
+#: Every name `kind_name` can return, taken from the SDK enum so the accepted
+#: list cannot drift. `typeN` is also accepted, for unknown content types.
+KIND_NAMES = frozenset(
+    {"text"} | {member.name.lower() for member in ContentType if member is not ContentType.NONE}
+)
+
+
+def known_kind(name: str) -> bool:
+    """True when a `kinds` filter can use this name."""
+    lowered = name.strip().lower()
+    return lowered in KIND_NAMES or (lowered.startswith("type") and lowered[4:].isdigit())
+
+
 def iso_time(epoch_ms: Any) -> str | None:
     """Epoch milliseconds to a local ISO 8601 string (what a model reads best).
 

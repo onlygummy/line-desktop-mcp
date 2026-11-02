@@ -86,6 +86,7 @@ def test_search_messages_schema_and_description() -> None:
 
     assert set(search.input_schema["properties"]) == {
         "query",
+        "kinds",
         "chats",
         "limit",
         "offset",

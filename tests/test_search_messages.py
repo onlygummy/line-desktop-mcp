@@ -17,12 +17,12 @@ FAMILY = {"mid": "c1", "name": "Family", "kind": "group", "unread": 0}
 WORK = {"mid": "c2", "name": "Work Team", "kind": "group", "unread": 0}
 
 
-def _msg(message_id: str, text: str, ms: int = 1_000, sender: str = "u1") -> dict:
+def _msg(message_id: str, text: str, ms: int = 1_000, sender: str = "u1", ct: int = 0) -> dict:
     return {
         "id": message_id,
         "from": sender,
         "deliveredTime": ms,
-        "contentType": 0,
+        "contentType": ct,
         "text": text,
     }
 
@@ -135,8 +135,50 @@ def test_an_unknown_scope_asks_for_the_listing(store: Archive) -> None:
 
 
 def test_an_empty_query_is_rejected(store: Archive) -> None:
-    with pytest.raises(ToolError, match="must not be empty"):
+    with pytest.raises(ToolError, match="Provide `query`"):
         _call(FakeReader(chats=[FAMILY]), store, query="   ")
+
+
+def test_kinds_find_media_without_a_query(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice"), names, "c1"),
+            to_row(_msg("m2", text="", ct=1), names, "c1"),
+        ]
+    )
+
+    result = _call(FakeReader(chats=[FAMILY]), store, kinds=["image"])
+
+    assert [hit["message"]["id"] for hit in result["hits"]] == ["m2"]
+    assert result["filters"]["kinds"] == ["image"]
+    # No text query, so every in-scope message is a candidate.
+    assert result["coverage"]["messages_scanned"] == 1
+
+
+def test_kinds_are_normalised_and_mix_with_a_query(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice"), names, "c1"),
+            to_row(_msg("m2", "invoice photo", ct=1), names, "c1"),
+        ]
+    )
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice", kinds=["IMAGE"])
+
+    assert [hit["message"]["id"] for hit in result["hits"]] == ["m2"]
+    assert result["filters"]["kinds"] == ["image"]
+
+
+def test_an_unknown_kind_is_rejected(store: Archive) -> None:
+    with pytest.raises(ToolError, match="Unknown kind"):
+        _call(FakeReader(chats=[FAMILY]), store, kinds=["videoo"])
+
+
+def test_a_search_without_query_or_kinds_is_rejected(store: Archive) -> None:
+    with pytest.raises(ToolError, match="Provide `query`, `kinds`, or both"):
+        _call(FakeReader(chats=[FAMILY]), store)
 
 
 def test_since_days_filters_old_hits(store: Archive, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,6 +232,7 @@ def test_reports_the_filters_it_applied(store: Archive) -> None:
 
     assert result["filters"] == {
         "chats": None,
+        "kinds": None,
         "after": None,
         "before": None,
         "from": {"mid": "u1", "name": "Soda"},

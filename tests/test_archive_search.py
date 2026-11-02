@@ -23,6 +23,7 @@ def _row(
     ms: int = 1_000,
     sender: str = "u1",
     sealed: int = 0,
+    kind: str = "text",
 ) -> dict:
     return {
         "id": message_id,
@@ -30,7 +31,7 @@ def _row(
         "from_mid": sender,
         "from_name": f"name-{sender}",
         "delivered_ms": ms,
-        "kind": "text",
+        "kind": kind,
         "text": text,
         "sealed": sealed,
         "content_type": 0,
@@ -146,6 +147,35 @@ def test_coverage_separates_scanned_from_in_scope(archive: Archive) -> None:
     assert archive.coverage(chat_mids=["c2"]) == {"in_scope": 0, "scanned": 0, "sealed": 0}
     assert archive.coverage(after_ms=3_000) == {"in_scope": 1, "scanned": 1, "sealed": 0}
     assert archive.coverage(from_mid="u9") == {"in_scope": 0, "scanned": 0, "sealed": 0}
+
+
+def test_search_can_find_a_kind_without_any_text(archive: Archive) -> None:
+    archive.upsert_messages(
+        [
+            _row("m1", "ticket", kind="text"),
+            _row("m2", None, kind="image"),
+            _row("m3", None, kind="sticker"),
+        ]
+    )
+
+    hits = archive.search(None, limit=10, kinds=["image"])
+
+    assert [row["id"] for row in hits] == ["m2"]
+
+
+def test_a_kind_filter_combines_with_text_and_coverage(archive: Archive) -> None:
+    archive.upsert_messages(
+        [
+            _row("m1", "ticket", kind="text"),
+            _row("m2", "ticket photo", kind="image"),
+            _row("m3", None, kind="image"),
+        ]
+    )
+
+    hits = archive.search("ticket", limit=10, kinds=["image"])
+
+    assert [row["id"] for row in hits] == ["m2"]
+    assert archive.coverage(kinds=["image"]) == {"in_scope": 2, "scanned": 1, "sealed": 0}
 
 
 def test_oldest_returns_the_earliest_message(archive: Archive) -> None:
