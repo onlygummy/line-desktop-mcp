@@ -20,6 +20,7 @@ Version 4.0.0. It is not affiliated with LINE Corporation or LY Corporation.
 - `list_chats` lists chats with name, kind, unread count, and a last preview.
 - `get_messages` reads one chat and returns its messages, with images attached.
 - `search_messages` searches the local archive for text across chats.
+- `unread` summarises every chat with unread messages in one call.
 
 It never writes to LINE: it does not send, mark anything as read, or delete anything. Every tool
 writes on this machine: the session, the message archive, and the image backups.

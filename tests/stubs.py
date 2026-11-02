@@ -6,6 +6,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from fastmcp.exceptions import ToolError
+
 from line_desktop_mcp.reader import Ready
 
 
@@ -40,6 +42,8 @@ class FakeReader:
         *,
         chats: Any = None,
         recent: Any = None,
+        recent_by_chat: Mapping[str, list[dict[str, Any]]] | None = None,
+        fail_recent_for: set[str] | None = None,
         previous: Mapping[str, list[dict[str, Any]]] | None = None,
         names: Mapping[str, str] | None = None,
         download: Callable[[Mapping[str, Any]], bytes | None] | None = None,
@@ -49,6 +53,8 @@ class FakeReader:
     ) -> None:
         self.chats = chats if chats is not None else []
         self._recent = recent if recent is not None else []
+        self._recent_by_chat = dict(recent_by_chat or {})
+        self._fail_recent_for = set(fail_recent_for or ())
         self._previous = dict(previous or {})
         self._names = dict(names or {"u1": "Soda"})
         self._download = download
@@ -77,6 +83,10 @@ class FakeReader:
 
     def recent(self, chat_mid: str, count: int) -> list[dict[str, Any]]:
         self.calls.append(("recent", chat_mid, count))
+        if chat_mid in self._fail_recent_for:
+            raise ToolError("LINE request failed: offline")
+        if chat_mid in self._recent_by_chat:
+            return [dict(message) for message in self._recent_by_chat[chat_mid]]
         if isinstance(self._recent, Exception):
             raise self._recent
         return [dict(message) for message in self._recent]

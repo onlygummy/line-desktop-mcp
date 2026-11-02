@@ -22,7 +22,7 @@ from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
 
-from line_desktop_mcp import lookup, media, paths
+from line_desktop_mcp import attach, lookup
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.reader import LineReader
 from line_desktop_mcp.view import row_to_view, to_row, to_view
@@ -97,7 +97,19 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
                 else row_to_view(entry["row"], names)
             )
 
-        images, images_failed = _attach_images(reader, archive, chat_mid, ordered)
+        images, images_failed = attach.attach_images(
+            reader,
+            archive,
+            chat_mid,
+            [
+                (
+                    str(entry["view"]["id"]),
+                    entry.get("raw") or attach.raw_payload(entry.get("row") or {}),
+                )
+                for entry in ordered
+                if entry["view"].get("kind") == "image"
+            ],
+        )
 
         payload = {
             "ok": True,
@@ -205,63 +217,9 @@ def _remember_row(
     from_archive.add(message_id)
 
 
-# -- media -------------------------------------------------------------------
-def _attach_images(
-    reader: LineReader,
-    archive: Archive,
-    chat_mid: str,
-    ordered: list[dict[str, Any]],
-) -> tuple[list[tuple[str, Any]], list[str]]:
-    """Save each image once, then return it as an attachment for the model."""
-    wanted = [entry for entry in ordered if entry["view"].get("kind") == "image"]
-    if not wanted:
-        return [], []
-
-    known = archive.media_for([entry["view"]["id"] for entry in wanted])
-    attached: list[tuple[str, Any]] = []
-    failed: list[str] = []
-
-    for entry in wanted:
-        message_id = str(entry["view"]["id"])
-        saved = known.get(message_id)
-        if saved:
-            path = paths.media_dir() / str(saved.get("rel_path"))
-            if path.exists():
-                attached.append((message_id, path))
-                continue
-
-        raw = entry.get("raw") or _raw_payload(entry.get("row") or {})
-        data = reader.download(raw or {"id": message_id})
-        if not data:
-            failed.append(message_id)
-            continue
-        ext = media.image_ext(data)
-        if ext is None:
-            failed.append(message_id)
-            continue
-
-        path = archive.media_path(chat_mid, message_id, ext)
-        media.save_bytes(path, data)
-        archive.record_media(message_id, chat_mid, path, data, ext)
-        attached.append((message_id, path))
-
-    return attached, failed
-
-
 # -- helpers -----------------------------------------------------------------
 def _ms(message: Mapping[str, Any]) -> int:
     try:
         return int(message.get("deliveredTime") or message.get("createdTime") or 0)
     except (TypeError, ValueError):
         return 0
-
-
-def _raw_payload(row: Mapping[str, Any]) -> dict[str, Any]:
-    stored = row.get("raw_json")
-    if not isinstance(stored, str) or not stored:
-        return {}
-    try:
-        parsed = json.loads(stored)
-    except ValueError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}

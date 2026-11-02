@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
@@ -42,17 +41,11 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         """
         reader.ensure_ready()
 
-        stale = False
-        try:
-            chats = lookup.directory(reader, archive)
-            if query and not _filter(chats, unread_only, query):
-                # LINE caps the listing, so a miss gets one refetch.
-                chats = lookup.directory(reader, archive, refresh=True)
-        except ToolError:
-            chats = archive.chats()
-            if not chats:
-                raise
-            stale = True
+        chats, stale = lookup.directory_with_state(reader, archive)
+        if query and not stale and not _filter(chats, unread_only, query):
+            # LINE caps the listing, so a miss gets one refetch. Offline, the
+            # archive already answered and there is nothing left to ask.
+            chats, stale = lookup.directory_with_state(reader, archive, refresh=True)
 
         chats = _filter(chats, unread_only, query)
 

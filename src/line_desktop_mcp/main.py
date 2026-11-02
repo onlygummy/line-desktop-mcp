@@ -13,7 +13,14 @@ from fastmcp import FastMCP
 
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.reader import LineReader
-from line_desktop_mcp.tools import get_messages, list_chats, login, logout, search_messages
+from line_desktop_mcp.tools import (
+    get_messages,
+    list_chats,
+    login,
+    logout,
+    search_messages,
+    unread,
+)
 
 archive = Archive()
 reader = LineReader()
@@ -24,7 +31,8 @@ mcp = FastMCP(
         "Reads your own LINE chats. Call login first: it returns at once when the "
         "saved session still works, and only opens a QR window when it does not. "
         "Then use list_chats to find the chat and get_messages to read it, or "
-        "search_messages to look for text across what has already been read. Every "
+        "search_messages to look for text across what has already been read. For "
+        "what needs attention, call unread once instead of reading every chat. Every "
         "message read is stored in a local SQLite archive and every image is "
         "saved as a backup; nothing is sent to LINE and nothing is marked as read. "
         "logout ends the session and deletes the saved login, not the archive."
@@ -36,6 +44,7 @@ logout.register(mcp, reader)
 list_chats.register(mcp, reader, archive)
 get_messages.register(mcp, reader, archive)
 search_messages.register(mcp, reader, archive)
+unread.register(mcp, reader, archive)
 
 
 def _shutdown() -> None:

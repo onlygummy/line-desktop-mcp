@@ -7,7 +7,7 @@ Commands, tests, source layout, and architecture notes.
 ```bash
 uv sync
 uv run line-desktop-mcp
-uv run pytest                  # 150 tests, no network, Node or Tk needed
+uv run pytest                  # 163 tests, no network, Node or Tk needed
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy
@@ -29,6 +29,7 @@ src/line_desktop_mcp/
   history.py       # newest page, then older pages: keep one chat archived
   archive.py       # SQLite archive: chats, messages, media, search
   media.py         # magic-byte detection, safe file names, atomic writes
+  attach.py        # save image messages once, shared by get_messages and unread
   view.py          # message -> model view / archive row, chat matching
   qr_window.py     # Tk card (child process) with the QR, PIN and outcome states
   tools/
@@ -37,10 +38,12 @@ src/line_desktop_mcp/
     list_chats.py
     get_messages.py
     search_messages.py
+    unread.py
 tests/
   test_login.py  test_logout.py  test_list_chats.py  test_get_messages.py
-  test_search_messages.py  test_reader.py  test_archive.py  test_history.py
-  test_media.py  test_view.py  test_qr_window.py  test_main.py  stubs.py
+  test_search_messages.py  test_unread.py  test_reader.py  test_archive.py
+  test_history.py  test_media.py  test_view.py  test_qr_window.py
+  test_main.py  stubs.py
 ```
 
 ## Architecture
