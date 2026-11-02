@@ -33,8 +33,8 @@ _GRACE_SEC = 30.0
 #: How often the tool thread checks whether the window was closed.
 _POLL_SEC = 0.2
 
-#: Only one login at a time: two windows would fight over the same file.
-_LOGIN_LOCK = threading.Lock()
+#: Only one login or logout at a time: they both own the session file.
+SESSION_LOCK = threading.Lock()
 
 # Writing a session file is a side effect, but it destroys nothing and the call
 # is safe to repeat, because an existing session short-circuits before any
@@ -257,7 +257,7 @@ def run_login(timeout_sec: float, *, force: bool = False) -> dict[str, Any]:
                 "ui": "none",
             }
 
-    if not _LOGIN_LOCK.acquire(blocking=False):
+    if not SESSION_LOCK.acquire(blocking=False):
         raise ToolError(
             "A login is already running in another tool call. Wait for it to finish "
             "instead of opening a second QR window."
@@ -265,7 +265,7 @@ def run_login(timeout_sec: float, *, force: bool = False) -> dict[str, Any]:
     try:
         return _qr_login(path, timeout_sec)
     finally:
-        _LOGIN_LOCK.release()
+        SESSION_LOCK.release()
 
 
 def register(mcp: FastMCP) -> None:

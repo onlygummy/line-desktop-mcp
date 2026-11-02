@@ -7,7 +7,7 @@ Commands, tests, source layout, and architecture notes.
 ```bash
 uv sync
 uv run line-desktop-mcp
-uv run pytest                  # 135 tests, no network, Node or Tk needed
+uv run pytest                  # 150 tests, no network, Node or Tk needed
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy
@@ -33,12 +33,13 @@ src/line_desktop_mcp/
   qr_window.py     # Tk card (child process) with the QR, PIN and outcome states
   tools/
     login.py
+    logout.py
     list_chats.py
     get_messages.py
     search_messages.py
 tests/
-  test_login.py  test_list_chats.py  test_get_messages.py  test_search_messages.py
-  test_reader.py  test_archive.py  test_archive_search.py  test_history.py
+  test_login.py  test_logout.py  test_list_chats.py  test_get_messages.py
+  test_search_messages.py  test_reader.py  test_archive.py  test_history.py
   test_media.py  test_view.py  test_qr_window.py  test_main.py  stubs.py
 ```
 
@@ -51,6 +52,8 @@ tests/
 - The LINE client is one shared instance, guarded by a lock, because
   `requests.Session` and the Node signer are not thread safe.
 - The archive is one SQLite connection with WAL.
+- `logout` revokes the session on LINE, closes the client while holding the call
+  lock, then deletes the session file. The archive is never in scope.
 
 ## Protocol
 

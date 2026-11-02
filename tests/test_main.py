@@ -1,4 +1,4 @@
-"""The MCP surface: three tools, none of them advertised as read-only."""
+"""The MCP surface: five tools, four of them non-destructive."""
 
 from __future__ import annotations
 
@@ -17,15 +17,26 @@ def _tools():
     return asyncio.run(go())
 
 
-def test_the_four_tools_are_exposed() -> None:
+def test_the_five_tools_are_exposed() -> None:
     tools = _tools()
 
     assert [tool.name for tool in tools] == [
         "login",
+        "logout",
         "list_chats",
         "get_messages",
         "search_messages",
     ]
+
+
+def test_logout_schema_and_annotations() -> None:
+    logout = {tool.name: tool for tool in _tools()}["logout"]
+
+    assert set(logout.input_schema["properties"]) == set()
+    assert logout.annotations is not None
+    assert logout.annotations.read_only_hint is False
+    assert logout.annotations.destructive_hint is True
+    assert "archive" in logout.description
 
 
 def test_login_schema_and_annotations() -> None:

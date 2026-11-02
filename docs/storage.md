@@ -23,6 +23,9 @@ there on a cold start with LINE unreachable.
 The files in the directory are plaintext, so treat the whole directory as
 sensitive. Opening an image downloads it from LINE object storage into `media`.
 
+`logout` deletes `session.json` and any fallback `qr.txt`, and leaves the
+archive and the media directory in place.
+
 `.gitignore` excludes `session/`, `*.session.json`, `tokens.json`, `qr.txt`,
 `archive.db`, `archive.db-wal`, `archive.db-shm`, and `media/`. A backup or cloud
 sync of the folder can still copy it elsewhere, so keep it off shared drives.

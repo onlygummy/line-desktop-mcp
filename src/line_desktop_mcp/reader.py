@@ -124,6 +124,41 @@ class LineReader:
         """Forget the client after LINE rejected the token."""
         self.close()
 
+    def revoke(self) -> dict[str, Any]:
+        """Invalidate this device's session on LINE; never raises.
+
+        `remote` is "revoked" when LINE accepted the logout, "skipped" when
+        there is no usable client or token to ask, and "failed" with `error`
+        set when the request itself died. The caller deletes the local file
+        either way: that file is the real risk, not the server's copy.
+        """
+        try:
+            self.ensure_ready()
+        except ToolError as exc:
+            return {"remote": "skipped", "error": str(exc)}
+
+        with self._lock:
+            api = self._api
+        tokens = getattr(api, "tokens", None)
+        if api is None or not getattr(tokens, "access_token", None):
+            return {"remote": "skipped", "error": None}
+        try:
+            self._call(lambda api: api.auth.logout())
+        except ToolError as exc:
+            return {"remote": "failed", "error": str(exc)}
+        return {"remote": "revoked", "error": None}
+
+    def shutdown(self) -> None:
+        """Close the client without cutting a request in half.
+
+        `close()` alone can run while another tool call is mid-request; taking
+        the call lock first waits for it. `invalidate()` must keep calling
+        `close()` directly, because `_call` already holds that lock when a
+        session is rejected.
+        """
+        with self._call_lock:
+            self.close()
+
     # -- calls --------------------------------------------------------------
     def _call(self, operation: Callable[[OkLine], Any]) -> Any:
         with self._lock:

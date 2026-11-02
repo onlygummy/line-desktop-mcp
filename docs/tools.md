@@ -1,12 +1,13 @@
 # Tools
 
-Reference for the four MCP tools: `login`, `list_chats`, `get_messages`, and
-`search_messages`.
+Reference for the five MCP tools: `login`, `logout`, `list_chats`, `get_messages`,
+and `search_messages`.
 
 ## Shared behaviour
 
-- All four tools declare `read_only_hint: false`, `destructive_hint: false`, and
-  `idempotent_hint: true`, because every one writes local files.
+- Every tool declares `read_only_hint: false` and `idempotent_hint: true`, because
+  all of them touch local files. `logout` is the only one with
+  `destructive_hint: true`, because it deletes the saved login.
 - Newest messages always come from LINE on each call. Older messages are read from
   the archive first, and the tool pages backwards through LINE only after that.
 - Images are always attached when present, with no count or size cap. Each image
@@ -50,6 +51,23 @@ Call this tool first.
 The result is `{ok, already_logged_in, profile{mid, display_name}, mid,
 e2ee_ready, session_path, ui}`.
 
+## logout
+
+```text
+logout()
+```
+
+- Asks LINE to invalidate the session, then deletes `session.json` and any
+  `qr.txt`. `remote` reports `revoked`, `skipped`, or `failed`; the local file
+  goes either way, because the stored token is the real risk. The phone stays
+  logged in; only this server signs out.
+- The archive and the image backups are kept, but every tool needs a `login`
+  again before it can reach LINE.
+- Safe to repeat (`already_logged_out: true`); refused while a `login` runs.
+
+The result is `{ok, already_logged_out, session_deleted, remote, remote_error,
+archive, next}`.
+
 ## list_chats
 
 ```text
@@ -66,8 +84,7 @@ list_chats(unread_only: bool = False, query: str | None = None, limit: int = 30)
 
 The result is `{ok, chats[], returned, unread_total, stale}`. Each chat is
 `{mid, name, kind, unread, last_ms, last_preview}`. `kind` is `group`, `room`, or
-`dm`. A direct chat is named after the other person. A chat LINE leaves unnamed is
-named after one of its members, and `Chat <mid>` is the last resort.
+`dm`. A chat is named after its LINE name, else a member, else its mid.
 
 ## get_messages
 
@@ -85,9 +102,8 @@ get_messages(chat: str, limit: int = 30)
   `contact`, `flex`, `chimevent`, `link`, `call`, or `typeN` for unknown content
   types.
 - Non-text messages add a readable `summary` and a typed detail object
-  (`sticker`, `location`, `contact`, `file`, `media`, `flex`, `event`). Examples:
-  "sent a sticker (package 11537)", "shared a location: Siam", and "sent a file
-  report.pdf (1234 bytes)".
+  (`sticker`, `location`, `contact`, `file`, `media`, `flex`, `event`), such as
+  "sent a sticker (package 11537)" or "sent a file report.pdf (1234 bytes)".
 
 The tool returns MCP content blocks: one text block with JSON, then one image block
 per image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned, source,
@@ -127,8 +143,7 @@ api_pages}`.
 
 - `scope` is `archive` or `archive+api`.
 - `coverage.messages_searched` counts only what the archive holds, so a small
-  number means most history was never read. Read it before you conclude that
-  something does not exist.
+  number means most history was never read.
 - `chats_hit` tells you which chat mentioned the text, so you do not have to
   group the hits.
 - `api_pages` reports how many LINE pages `sync` fetched, newest page included.
