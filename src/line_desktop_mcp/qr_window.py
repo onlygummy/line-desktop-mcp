@@ -1,23 +1,31 @@
-"""Tk window that shows the login QR code.
+"""The QR window: a Tk card in a child process, driven over stdin by JSON lines.
 
-Single responsibility: rendering. The window knows nothing about LINE, tokens
-or sessions -- it draws whatever URL it is handed and tells the caller when the
-user cancels.
+Tk must own the process main thread: creating the interpreter on one thread and
+letting it be collected on another aborts the whole process with
+`Tcl_AsyncDelete: async handler deleted by the wrong thread`. That crash took the
+MCP server down, so the window now runs as a tiny child process and this module
+-- imported by the server -- only speaks to it. See `main()` for the child side.
 
-The look follows the v3 dialog this project replaces: a light card with a
-coloured status pill, one instruction line, a footer, and a fixed content box
-so the QR, the PIN and the spinner all sit in the same place and the window
-never jumps between states.
+Protocol (one JSON object per line, server -> child):
 
-Tk objects may only be touched by the thread that created them, so the window
-runs its own thread and every public method just posts a message to a queue.
-The window thread is the only one that touches widgets.
+    {"kind": "qr",     "url": "..."}
+    {"kind": "pin",    "pin": "..."}
+    {"kind": "done",   "message": "..."}
+    {"kind": "failed", "message": "..."}
+    {"kind": "close"}
+
+The child exits when it is told to close, or when stdin reaches EOF. It exits
+with status 2 when Tk cannot start, which is how the server detects "no display"
+and falls back to a text QR.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import queue
+import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from typing import Any
@@ -48,8 +56,8 @@ SCALE_FLOOR = 2  # smallest pixels-per-module, so a huge code still fits
 SPIN_MS = 80  # spinner frame interval
 SPIN_STEP = 30  # degrees per frame
 CLOSE_DELAY_MS = 700  # how long a finished window stays readable
-POLL_MS = 80  # how often the window drains its message queue
-READY_TIMEOUT_SEC = 5.0
+POLL_MS = 80  # how often the child drains its queue
+READY_TIMEOUT_SEC = 1.5  # how long to wait for the child to fail fast
 CENTER_BIAS = 0.45  # < 0.5 sits slightly above the middle of the screen
 
 # state: (pill text, instruction, tone) -- v3's vocabulary, kept so a user who
@@ -66,6 +74,7 @@ TERMINAL_STATES = frozenset({"done", "failed", "cancelled"})
 TONE_COLOR = {"green": GREEN, "amber": AMBER, "red": RED, "gray": GRAY}
 
 
+# -- pure helpers (shared by the child and the tests) ------------------------
 def dark_cells(matrix: list[list[bool]]) -> Iterator[tuple[int, int]]:
     """Yield (column, row) of every dark module (pure, testable without Tk)."""
     for row_index, row in enumerate(matrix):
@@ -106,14 +115,6 @@ def card_size(image: tuple[int, int] | None, text: tuple[int, int]) -> tuple[int
     return width, height
 
 
-def _enable_dpi() -> None:
-    """Make text crisp on scaled displays (Windows only, best effort)."""
-    with contextlib.suppress(Exception):
-        import ctypes
-
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-
-
 def _center_xy(window: tuple[int, int], screen: tuple[int, int]) -> tuple[int, int]:
     """Top-left coordinate that centres a window; bias < 0.5 sits higher."""
     x = int((screen[0] - window[0]) / 2)
@@ -121,142 +122,183 @@ def _center_xy(window: tuple[int, int], screen: tuple[int, int]) -> tuple[int, i
     return max(0, x), max(0, y)
 
 
-class QRWindow:
-    """A small card showing a QR code, a PIN, or an outcome.
+def _enable_dpi() -> None:
+    """Make text crisp on scaled displays (Windows only, best effort).
 
-    ``error`` is set when the window could not be opened at all (no display, or
-    a Python build without Tk); callers fall back to rendering the code as text.
+    `ctypes.windll` exists only on Windows, so it is looked up by name: the
+    stubs on other platforms leave it out, and mypy runs on Linux in CI.
+    """
+    with contextlib.suppress(Exception):
+        import ctypes
+
+        windll = getattr(ctypes, "windll", None)
+        if windll is not None:
+            windll.shcore.SetProcessDpiAwareness(1)
+
+
+# -- server side -------------------------------------------------------------
+class QRWindow:
+    """Handle to the child window: send it state, notice when the user closes it.
+
+    ``error`` is set when the child could not start at all (no display, or a
+    Python build without Tk); callers fall back to rendering the code as text.
     """
 
     def __init__(self, title: str = TITLE) -> None:
         self._title = title
-        self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
-        self._thread: threading.Thread | None = None
-        self._ready = threading.Event()
-        self._closed = threading.Event()
-        self._stopped = False
-        #: Set when the user cancels or closes the window.
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._monitor: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._requested_close = False
+        #: Set when the user closed the window before the login finished.
         self.cancelled = threading.Event()
-        #: Non-None when Tk could not start; the window never opened.
+        #: Non-None when the window never opened.
         self.error: str | None = None
         #: Last URL handed over, kept so a text fallback can still show it.
         self.last_url: str | None = None
-        # Widgets exist only once the window thread created them.
-        self._root: Any = None
-        self._pill: Any = None
-        self._instruction: Any = None
-        self._content: Any = None
-        self._canvas: Any = None
-        self._pin_label: Any = None
-        self._spinner: Any = None
-        self._tk: Any = None
-        self._arc: int | None = None
-        self._angle = 0
-        self._spinning = False
-        self._extent: tuple[int, int] = (0, 0)
-        self._size: tuple[int, int] | None = None
-        self._centred = False
 
-    # -- producer side (callable from any thread) ---------------------------
     def start(self) -> None:
-        """Open the window and wait briefly until it exists (or fails)."""
-        self._thread = threading.Thread(target=self._run, name="qr-window", daemon=True)
-        self._thread.start()
-        self._ready.wait(READY_TIMEOUT_SEC)
+        """Launch the child and wait briefly, to notice a window that cannot open."""
+        try:
+            self._proc = subprocess.Popen(
+                [sys.executable, "-m", "line_desktop_mcp.qr_window", "--title", self._title],
+                stdin=subprocess.PIPE,
+                # stdout belongs to the MCP protocol: never let the child near it.
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:  # noqa: BLE001 - report, then fall back to text
+            self.error = f"the QR window could not be started ({exc})"
+            return
+
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            code = self._proc.wait(timeout=READY_TIMEOUT_SEC)
+            self.error = (
+                "the QR window could not be opened (no display, or a Python build "
+                f"without Tk; the child exited with {code})"
+            )
+            self._proc = None
+            return
+
+        self._monitor = threading.Thread(target=self._watch, name="qr-window", daemon=True)
+        self._monitor.start()
 
     def show_qr(self, url: str) -> None:
         self.last_url = url
-        self._queue.put(("qr", url))
+        self._send({"kind": "qr", "url": url})
 
     def show_pin(self, pin: str) -> None:
-        self._queue.put(("pin", pin))
+        self._send({"kind": "pin", "pin": pin})
 
     def finish(self, message: str = "") -> None:
         """Show the success state; the window closes itself shortly after."""
-        self._queue.put(("done", message))
+        self._requested_close = True
+        self._send({"kind": "done", "message": message})
 
     def fail(self, message: str = "") -> None:
         """Show the failure state; the window closes itself shortly after."""
-        self._queue.put(("failed", message))
+        self._requested_close = True
+        self._send({"kind": "failed", "message": message})
 
     def close(self) -> None:
-        self._queue.put(("close", ""))
+        self._requested_close = True
+        self._send({"kind": "close"})
+        timer = threading.Timer(2.0, self._kill)
+        timer.daemon = True
+        timer.start()
 
     def join(self, timeout: float | None = None) -> None:
-        self._closed.wait(timeout)
-
-    # -- window thread ------------------------------------------------------
-    def _run(self) -> None:
-        try:
-            import tkinter as tk
-            from tkinter import font as tkfont
-        except Exception as exc:  # noqa: BLE001 - report any import failure
-            self.error = f"tkinter is not available in this Python ({exc})"
-            self._mark_dead()
+        proc = self._proc
+        if proc is None:
             return
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=timeout)
+
+    # -- internals ----------------------------------------------------------
+    def _send(self, payload: dict[str, Any]) -> None:
+        proc = self._proc
+        if proc is None or proc.stdin is None:
+            return
+        with self._lock:
+            try:
+                proc.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError):
+                pass  # the window is gone; the caller's poll sees it
+
+    def _watch(self) -> None:
+        proc = self._proc
+        if proc is None:
+            return
+        code = proc.wait()
+        if self._requested_close:
+            return
+        if code == 2:
+            # The child gave up on Tk after start() already returned; report it
+            # as "cannot open a window" so the caller can fall back to text.
+            if self.error is None:
+                self.error = (
+                    "the QR window could not be opened (no display, or a Python build without Tk)"
+                )
+            return
+        self.cancelled.set()
+
+    def _kill(self) -> None:
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            with contextlib.suppress(Exception):
+                proc.terminate()
+
+
+# -- child side --------------------------------------------------------------
+class _Ui:
+    """The Tk widgets, built and touched only on the child's main thread."""
+
+    def __init__(self, title: str) -> None:
+        import tkinter as tk
+        from tkinter import font as tkfont
+
+        self._tk = tk
+        self._stopped = False
+        self._spinning = False
+        self._angle = 0
+        self._spinner: Any = None
+        self._arc: int | None = None
+        self._size: tuple[int, int] | None = None
+        self._centred = False
 
         _enable_dpi()
-        try:
-            root = tk.Tk()
-        except Exception as exc:  # noqa: BLE001 - no display, broken Tk, ...
-            self.error = f"the QR window could not be opened ({exc})"
-            self._mark_dead()
-            return
-
-        self._root = root
-        self._tk = tk
-        root.title(self._title)
-        root.attributes("-topmost", True)
-        root.resizable(False, False)
-        root.configure(bg=BG)
+        self.root = tk.Tk()
+        self.root.title(title)
+        self.root.attributes("-topmost", True)
+        self.root.resizable(False, False)
+        self.root.configure(bg=BG)
         with contextlib.suppress(Exception):  # scaling is cosmetic
-            root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
+            self.root.tk.call("tk", "scaling", self.root.winfo_fpixels("1i") / 72.0)
 
-        # Header holds only the pill: the app name is already in the title bar.
-        header = tk.Frame(root, bg=BG)
+        header = tk.Frame(self.root, bg=BG)
         header.pack(side="top", fill="x", padx=CARD_PAD, pady=(18, 0))
         self._pill = tk.Label(header, text="", bg=GREEN, fg=BG, font=PILL_FONT, padx=10, pady=3)
         self._pill.pack(side="right")
 
-        # Bottom-up packing: footer lowest, then the instruction, which leaves
-        # the content box the space in between. There is no Cancel button on
-        # purpose: the title bar's close control is the one way to stop, and the
-        # footer says so.
-        tk.Label(root, text="Close to cancel", bg=BG, fg=GRAY, font=SMALL_FONT).pack(
+        tk.Label(self.root, text="Close to cancel", bg=BG, fg=GRAY, font=SMALL_FONT).pack(
             side="bottom", pady=(0, 14)
         )
-        self._instruction = tk.Label(root, text="", bg=BG, fg=MUTED, font=BODY_FONT)
+        self._instruction = tk.Label(self.root, text="", bg=BG, fg=MUTED, font=BODY_FONT)
         self._instruction.pack(side="bottom", pady=(0, 4))
 
-        # The content box holds the QR or the PIN. It keeps its size because
-        # its children are placed rather than packed.
-        self._content = tk.Frame(root, bg=BG)
+        self._content = tk.Frame(self.root, bg=BG)
         self._content.pack(side="top", fill="both", expand=True, padx=CARD_PAD, pady=(16, 16))
-
         self._canvas = tk.Canvas(self._content, background=BG, highlightthickness=0)
         self._pin_label = tk.Label(self._content, bg=BG, fg=TEXT, font=PIN_FONT)
 
-        root.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         self._extent = self._text_extent(tkfont)
-        # Reserve the final QR box before the code exists: when it arrives the
-        # window is already this size, so it never grows in front of the user.
         self._resize(*card_size((TARGET_QR_PX, TARGET_QR_PX), self._extent))
         self._set_state("preparing")
 
-        self._ready.set()
-        root.after(POLL_MS, self._pump)
-        try:
-            root.mainloop()
-        finally:
-            self._closed.set()
-
     def _text_extent(self, tkfont: Any) -> tuple[int, int]:
-        """Widest and tallest copy shown outside the content box.
-
-        Measured with the same font specs the labels use, so at 150% scaling a
-        long instruction cannot push the window wider than the box.
-        """
         try:
             pill = tkfont.Font(family=FONT, size=10, weight="bold")
             body = tkfont.Font(family=FONT, size=11)
@@ -274,7 +316,6 @@ class QRWindow:
             return (460, 120)
 
     def _resize(self, width: int, height: int) -> None:
-        """Fix the content box, re-centring only when the size really changed."""
         if self._size == (width, height):
             return
         self._size = (width, height)
@@ -283,15 +324,14 @@ class QRWindow:
         self._center()
 
     def _center(self) -> None:
-        self._root.update_idletasks()
+        self.root.update_idletasks()
         x, y = _center_xy(
-            (self._root.winfo_width(), self._root.winfo_height()),
-            (self._root.winfo_screenwidth(), self._root.winfo_screenheight()),
+            (self.root.winfo_width(), self.root.winfo_height()),
+            (self.root.winfo_screenwidth(), self.root.winfo_screenheight()),
         )
-        self._root.geometry(f"+{x}+{y}")
+        self.root.geometry(f"+{x}+{y}")
 
     def _place_centred(self, widget: Any) -> None:
-        """Centre one child in the box on both axes, hiding the rest."""
         for other in (self._canvas, self._pin_label, self._spinner):
             if other is not None and other is not widget:
                 other.place_forget()
@@ -299,11 +339,6 @@ class QRWindow:
             widget.place(relx=0.5, rely=0.5, anchor="center")
 
     def _start_spinner(self) -> None:
-        """Rotate an arc in the box while the QR is still being created.
-
-        Without it the first seconds show an empty white card, which reads as
-        a broken window rather than work in progress.
-        """
         if self._spinner is None:
             side = max(64, min(160, int(min(self._size or MIN_CARD) * 0.35)))
             inset = side * 0.1
@@ -332,21 +367,14 @@ class QRWindow:
         self._spinner.itemconfigure(self._arc or 0, start=self._angle)
         self._spinner.after(SPIN_MS, self._spin)
 
-    def _stop_spinner(self) -> None:
-        """Stop the arc where it is; hiding it is _place_centred's job."""
-        self._spinning = False
-
     def _set_state(self, state: str, message: str = "") -> None:
-        """Render one login state: pill, instruction, and the body it needs."""
         label, instruction, tone = STATES.get(state, STATES["waiting"])
         self._pill.configure(text=label, bg=TONE_COLOR[tone])
         self._instruction.configure(text=message or instruction)
-        self._stop_spinner()
+        self._spinning = False
 
         if state in TERMINAL_STATES:
-            # Leave the body untouched: the code the user just used stays on
-            # screen while the outcome is readable.
-            self._root.after(CLOSE_DELAY_MS, self._close)
+            self.root.after(CLOSE_DELAY_MS, self.close)
             return
 
         if state == "pin":
@@ -356,7 +384,7 @@ class QRWindow:
         else:
             self._place_centred(self._canvas)
 
-    def _draw_qr(self, url: str) -> None:
+    def draw_qr(self, url: str) -> None:
         matrix = qr_matrix(url)
         scale = scale_for(len(matrix))
         size = len(matrix) * scale
@@ -365,49 +393,80 @@ class QRWindow:
         for column, row in dark_cells(matrix):
             x0, y0 = column * scale, row * scale
             self._canvas.create_rectangle(x0, y0, x0 + scale, y0 + scale, fill=TEXT, outline="")
-        # The box was reserved for TARGET_QR_PX, so this is normally a no-op.
         self._resize(*card_size((size, size), self._extent))
 
-    def _pump(self) -> None:
-        """Drain the queue on the window thread; reschedule while alive."""
-        try:
-            while True:
-                kind, payload = self._queue.get_nowait()
-                if kind == "qr":
-                    self._draw_qr(payload)
-                    self._set_state("waiting")
-                elif kind == "pin":
-                    self._pin_label.configure(text=format_pin(payload))
-                    self._set_state("pin")
-                elif kind == "done":
-                    self._set_state("done", payload)
-                    return
-                elif kind == "failed":
-                    self._set_state("failed", payload)
-                    return
-                elif kind == "close":
-                    self._on_cancel()
-                    return
-        except queue.Empty:
-            pass
-
-        if not self._stopped:
-            self._root.after(POLL_MS, self._pump)
-
-    def _on_cancel(self) -> None:
-        self.cancelled.set()
-        self._close()
-
-    def _close(self) -> None:
+    def close(self) -> None:
         if self._stopped:
             return
         self._stopped = True
-        try:
-            self._root.destroy()
-        finally:
-            self._closed.set()
+        with contextlib.suppress(Exception):
+            self.root.destroy()
 
-    def _mark_dead(self) -> None:
-        self._stopped = True
-        self._ready.set()
-        self._closed.set()
+
+def _read_stdin(messages: queue.Queue[dict[str, Any]]) -> None:
+    """Forward the parent's JSON lines to the Tk thread; EOF means "close"."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(message, dict):
+            messages.put(message)
+    messages.put({"kind": "close"})
+
+
+def main() -> int:
+    """Run the window. Returns 2 when Tk is unavailable, so the caller can fall back."""
+    title = TITLE
+    if "--title" in sys.argv:
+        index = sys.argv.index("--title")
+        if index + 1 < len(sys.argv):
+            title = sys.argv[index + 1] or TITLE
+
+    try:
+        ui = _Ui(title)
+    except Exception:  # noqa: BLE001 - no display, no Tk: the caller falls back
+        return 2
+
+    messages: queue.Queue[dict[str, Any]] = queue.Queue()
+    threading.Thread(target=_read_stdin, args=(messages,), name="qr-input", daemon=True).start()
+
+    def pump() -> None:
+        if ui._stopped:
+            return
+        try:
+            while True:
+                message = messages.get_nowait()
+                kind = message.get("kind")
+                if kind == "qr":
+                    ui.draw_qr(str(message.get("url") or ""))
+                    ui._set_state("waiting")
+                elif kind == "pin":
+                    ui._pin_label.configure(text=format_pin(str(message.get("pin") or "")))
+                    ui._set_state("pin")
+                elif kind == "done":
+                    ui._set_state("done", str(message.get("message") or ""))
+                    return
+                elif kind == "failed":
+                    ui._set_state("failed", str(message.get("message") or ""))
+                    return
+                elif kind == "close":
+                    ui.close()
+                    return
+        except queue.Empty:
+            pass
+        ui.root.after(POLL_MS, pump)
+
+    ui.root.after(POLL_MS, pump)
+    try:
+        ui.root.mainloop()
+    finally:
+        ui.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

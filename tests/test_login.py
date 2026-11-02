@@ -10,6 +10,7 @@ from fastmcp.exceptions import ToolError
 from okline.exceptions import LineError
 from okline.hmac_signer import HmacSignerError
 
+from line_desktop_mcp import paths
 from line_desktop_mcp.tools import login
 
 
@@ -131,7 +132,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     session_file = tmp_path / "session.json"
     monkeypatch.setattr(login, "OkLine", FakeOkLine)
     monkeypatch.setattr(login, "QRWindow", FakeWindow)
-    monkeypatch.setenv(login.SESSION_ENV, str(session_file))
+    monkeypatch.setenv(paths.SESSION_ENV, str(session_file))
     Fake.profile = {"mid": "u1", "displayName": "Soda"}
     Fake.raises = None
     Fake.stale_session = False
@@ -254,4 +255,15 @@ def test_window_failure_falls_back_to_a_text_qr(fakes: Path) -> None:
     result = login.run_login(30)
 
     assert result["ui"] == "text"
-    assert (fakes.parent / "qr.txt").exists()
+    # The fallback QR is single-use and secret: it must not outlive the call.
+    assert not (fakes.parent / "qr.txt").exists()
+
+
+def test_a_rejected_login_cleans_up_the_text_qr(fakes: Path) -> None:
+    FakeWindow.usable = False
+    Fake.raises = LineError("nope")
+
+    with pytest.raises(ToolError, match="LINE login failed"):
+        login.run_login(30)
+
+    assert not (fakes.parent / "qr.txt").exists()

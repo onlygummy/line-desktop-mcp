@@ -8,7 +8,7 @@ general-purpose dumping ground.
 
 from __future__ import annotations
 
-import os
+import contextlib
 import threading
 import time
 from pathlib import Path
@@ -23,10 +23,8 @@ from okline.hmac_signer import HmacSignerError
 from okline.qrterm import qr_to_ascii
 from pydantic import Field
 
+from line_desktop_mcp.paths import session_path
 from line_desktop_mcp.qr_window import QRWindow
-
-#: Overrides the session location; the default is the per-user data directory.
-SESSION_ENV = "LINE_DESKTOP_MCP_SESSION"
 
 #: How long past `timeout_sec` to keep waiting before giving up. The library
 #: stops its own long-poll at `timeout_sec`; this covers network slack.
@@ -47,17 +45,6 @@ LOGIN_ANNOTATIONS = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=True,
 )
-
-
-def session_path() -> Path:
-    """Where the login lives: env override, else the per-user data directory."""
-    override = os.environ.get(SESSION_ENV)
-    if override:
-        return Path(override).expanduser()
-    base = os.environ.get("LOCALAPPDATA")
-    if base:
-        return Path(base) / "line-desktop-mcp" / "session.json"
-    return Path.home() / ".local" / "share" / "line-desktop-mcp" / "session.json"
 
 
 def _profile_summary(profile: Any) -> dict[str, Any]:
@@ -94,6 +81,12 @@ def _write_ascii_qr(path: Path, url: str) -> None:
     target = path.parent / "qr.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(qr_to_ascii(url), encoding="utf-8")
+
+
+def _clear_text_qr(path: Path) -> None:
+    """Drop the fallback QR once the login is over: it is single-use and secret."""
+    with contextlib.suppress(OSError):
+        (path.parent / "qr.txt").unlink(missing_ok=True)
 
 
 def _login_worker(
@@ -133,6 +126,7 @@ def _login_worker(
         api.save_tokens(str(path))
         box["profile"] = _profile_summary(api.get_profile())
         box["e2ee_ready"] = bool(api.e2ee.is_ready())
+        _clear_text_qr(path)
     except Exception as exc:  # noqa: BLE001 - mapped to ToolError by the caller
         box["exception"] = exc
     finally:
@@ -164,18 +158,22 @@ def _wait_for_scan(
     """Block until the worker finishes; return (state, message) or None."""
     deadline = time.monotonic() + timeout_sec + _GRACE_SEC
     while not done.wait(_POLL_SEC):
+        if window is not None and window.error is not None:
+            # The child gave up on Tk after start() returned; stop waiting.
+            abandon.set()
+            return ("failed", window.error)
         if window is not None and window.cancelled.is_set():
             abandon.set()
             return (
                 "cancelled",
-                "Login cancelled by the user. Nothing was saved; call line_login "
+                "Login cancelled by the user. Nothing was saved; call login "
                 "again when they are ready to scan.",
             )
         if time.monotonic() > deadline:
             abandon.set()
             return (
                 "failed",
-                f"No QR scan within {timeout_sec:g}s. Call line_login again and have "
+                f"No QR scan within {timeout_sec:g}s. Call login again and have "
                 "the user scan promptly; raise timeout_sec if they need longer.",
             )
     return None
@@ -222,6 +220,7 @@ def _qr_login(path: Path, timeout_sec: float) -> dict[str, Any]:
                 # Keep the line short: the window has one fixed-width row and
                 # the full reason is already in the tool error.
                 window.fail("See the tool result for the reason")
+        _clear_text_qr(path)
         raise ToolError(failure)
 
     profile = box.get("profile") or {"mid": None, "display_name": None}
@@ -269,11 +268,16 @@ def run_login(timeout_sec: float, *, force: bool = False) -> dict[str, Any]:
         _LOGIN_LOCK.release()
 
 
-def register_login_tool(mcp: FastMCP) -> None:
-    """Register `line_login` -- the only tool this server exposes for now."""
+def register(mcp: FastMCP) -> None:
+    """Register `login`, the tool that makes every other tool possible."""
 
-    @mcp.tool(title="Log in to LINE", tags={"login"}, annotations=LOGIN_ANNOTATIONS)
-    def line_login(
+    @mcp.tool(
+        name="login",
+        title="Log in to LINE",
+        tags={"login"},
+        annotations=LOGIN_ANNOTATIONS,
+    )
+    def login(
         timeout_sec: Annotated[
             float,
             Field(
