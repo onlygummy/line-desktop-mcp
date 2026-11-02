@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
@@ -11,7 +10,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from line_desktop_mcp import lookup
+from line_desktop_mcp import lookup, when
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.history import harvest
 from line_desktop_mcp.reader import LineReader
@@ -114,10 +113,10 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
                 api_pages += harvest(reader, archive, str(chat["mid"]))["pages"]
 
         chat_mids = [str(chat["mid"]) for chat in chosen] or None
-        after_ms = _after_ms(after) if after else _since_ms(since_days)
-        before_ms = _before_ms(before) if before else None
-        if after_ms is not None and before_ms is not None and after_ms >= before_ms:
-            raise ToolError("`after` must be earlier than `before`.")
+        after_ms, before_ms = when.window(after, before)
+        if after_ms is None:
+            after_ms = _since_ms(since_days)
+            when.check(after_ms, before_ms, field="since_days")
 
         sender = lookup.sender(archive, from_sender, chat_mids=chat_mids) if from_sender else None
         from_mid = sender["mid"] if sender else None
@@ -194,30 +193,3 @@ def _since_ms(days: int | None) -> int | None:
     if not days:
         return None
     return int(time.time() * 1000) - int(days) * 86_400_000
-
-
-def _after_ms(value: str) -> int:
-    return _moment_ms(value, "after")
-
-
-def _before_ms(value: str) -> int:
-    """A bare date covers the whole day, so `before=2026-11-30` includes it."""
-    raw = value.strip()
-    try:
-        day = datetime.strptime(raw, "%Y-%m-%d")
-    except ValueError:
-        return _moment_ms(raw, "before")
-    return int((day + timedelta(days=1)).timestamp() * 1000)
-
-
-def _moment_ms(value: str, field: str) -> int:
-    """A local date or ISO timestamp to epoch milliseconds."""
-    raw = value.strip()
-    try:
-        return int(datetime.strptime(raw, "%Y-%m-%d").timestamp() * 1000)
-    except ValueError:
-        pass
-    try:
-        return int(datetime.fromisoformat(raw).timestamp() * 1000)
-    except ValueError:
-        raise ToolError(f"`{field}` must be a date like 2026-11-01, or an ISO timestamp.") from None

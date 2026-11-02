@@ -252,6 +252,18 @@ def test_an_empty_window_is_rejected(store: Archive) -> None:
         )
 
 
+def test_since_days_must_stay_before_the_window_end(store: Archive) -> None:
+    """`since_days` sets the lower bound after `after` was checked, so check again."""
+    with pytest.raises(ToolError, match="since_days"):
+        _call(
+            FakeReader(chats=[FAMILY]),
+            store,
+            query="invoice",
+            since_days=30,
+            before="2020-01-01",
+        )
+
+
 def test_sender_can_be_a_name_or_a_mid(store: Archive) -> None:
     names = {"u1": "Soda", "u2": "Mint"}
     store.upsert_messages(

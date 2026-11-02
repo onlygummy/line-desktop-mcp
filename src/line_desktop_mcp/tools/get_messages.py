@@ -22,7 +22,7 @@ from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 from pydantic import Field
 
-from line_desktop_mcp import attach, lookup
+from line_desktop_mcp import attach, lookup, when
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.reader import LineReader
 from line_desktop_mcp.view import row_to_view, to_row, to_view
@@ -57,8 +57,23 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         limit: Annotated[
             int, Field(ge=1, le=200, description="How many messages, newest ones.")
         ] = 30,
+        after: Annotated[
+            str | None,
+            "Only messages on or after this date (`YYYY-MM-DD`) or ISO timestamp.",
+        ] = None,
+        before: Annotated[
+            str | None,
+            "Only messages on or before this date (`YYYY-MM-DD`). A bare date "
+            "covers the whole day.",
+        ] = None,
     ) -> list[Any]:
         """Read the newest messages of one LINE chat, oldest first.
+
+        Pass `after` and `before` to read a time window instead of the newest
+        slice: a bare date means local midnight, and `before` includes the whole
+        day. The archive answers first, so a window that was read before is
+        cheap and works offline; LINE is only paged back when the archive
+        cannot fill `limit`.
 
         Returns a JSON result plus the images those messages contain. Messages
         are decrypted when the saved session holds the Letter Sealing keys; a
@@ -75,7 +90,10 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         resolved = lookup.resolve(reader, archive, chat)
         chat_mid = str(resolved["mid"])
 
-        entries, stale, source, partial = _collect(reader, archive, chat_mid, limit)
+        after_ms, before_ms = when.window(after, before)
+        entries, stale, source, partial = _collect(
+            reader, archive, chat_mid, limit, after_ms, before_ms
+        )
         ordered = sorted(entries.values(), key=lambda entry: entry["ms"])[-limit:]
 
         # LINE does not put sender names in group messages, so resolve every
@@ -120,6 +138,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             },
             "messages": [entry["view"] for entry in ordered],
             "returned": len(ordered),
+            "window": {"after": after, "before": before},
             "source": source,
             "e2ee_ready": ready.e2ee_ready,
             "stale": stale,
@@ -137,6 +156,20 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
 
 # -- collection --------------------------------------------------------------
 def _collect(
+    reader: LineReader,
+    archive: Archive,
+    chat_mid: str,
+    limit: int,
+    after_ms: int | None = None,
+    before_ms: int | None = None,
+) -> tuple[dict[str, dict[str, Any]], bool, str, bool]:
+    """Gather the newest messages, or the newest messages inside one window."""
+    if after_ms is None and before_ms is None:
+        return _collect_newest(reader, archive, chat_mid, limit)
+    return _collect_window(reader, archive, chat_mid, limit, after_ms, before_ms)
+
+
+def _collect_newest(
     reader: LineReader,
     archive: Archive,
     chat_mid: str,
@@ -195,6 +228,79 @@ def _collect(
     source = "db" if stale else ("mixed" if from_archive else "api")
     partial = len(entries) < limit and not exhausted
     return entries, stale, source, partial
+
+
+def _collect_window(
+    reader: LineReader,
+    archive: Archive,
+    chat_mid: str,
+    limit: int,
+    after_ms: int | None,
+    before_ms: int | None,
+) -> tuple[dict[str, dict[str, Any]], bool, str, bool]:
+    """Gather the newest messages inside one time window.
+
+    The archive answers first, so a window that was read before costs nothing
+    and still works offline. LINE cannot jump to a date, so filling the rest
+    means walking back from the newest message, at most `MAX_PAGES` pages.
+    """
+    entries: dict[str, dict[str, Any]] = {}
+    from_archive: set[str] = set()
+    for row in archive.messages_in(chat_mid, limit, after_ms=after_ms, before_ms=before_ms):
+        _remember_row(entries, from_archive, row)
+
+    if len(entries) >= limit:
+        return entries, False, "db", False
+
+    try:
+        fresh = reader.recent(chat_mid, FRESH_BATCH)
+    except ToolError:
+        return entries, True, "db", False
+
+    _remember_window(entries, fresh, after_ms, before_ms)
+    reached_edge = not fresh
+    cursor = fresh[-1] if fresh else None
+    used = 0
+
+    while cursor is not None and len(entries) < limit and used < MAX_PAGES:
+        if after_ms is not None and _ms(cursor) < after_ms:
+            reached_edge = True  # already past the window: nothing older matches
+            break
+        page = reader.previous(chat_mid, str(cursor.get("id") or ""), _ms(cursor), PAGE_BATCH)
+        used += 1
+        if not page:
+            reached_edge = True
+            break
+        _remember_window(entries, page, after_ms, before_ms)
+        cursor = page[-1]
+
+    source = "mixed" if from_archive else "api"
+    partial = len(entries) < limit and not reached_edge
+    return entries, False, source, partial
+
+
+def _remember_window(
+    entries: dict[str, dict[str, Any]],
+    messages: list[dict[str, Any]],
+    after_ms: int | None,
+    before_ms: int | None,
+) -> None:
+    """Remember only the messages that fall inside the window."""
+    for message in messages:
+        ms = _ms(message)
+        if after_ms is not None and ms < after_ms:
+            continue
+        if before_ms is not None and ms >= before_ms:
+            continue
+        message_id = str(message.get("id") or "")
+        if not message_id:
+            continue
+        existing = entries.get(message_id)
+        if existing is not None and existing.get("raw"):
+            continue
+        # A LINE copy replaces an archived row, so a message that was sealed
+        # when it was read can still be decrypted today.
+        entries[message_id] = {"ms": ms, "raw": message}
 
 
 def _remember(entries: dict[str, dict[str, Any]], messages: list[dict[str, Any]]) -> None:

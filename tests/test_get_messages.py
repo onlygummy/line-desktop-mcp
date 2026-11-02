@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -37,14 +38,18 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Archive:
     archive.close()
 
 
-def _call(reader: FakeReader, archive: Archive, chat: str = "Family", limit: int = 30):
+def _call(reader: FakeReader, archive: Archive, chat: str = "Family", limit: int = 30, **extra):
     mcp = StubMCP()
     tool.register(mcp, reader, archive)  # type: ignore[arg-type]
-    return mcp.tools["get_messages"](chat=chat, limit=limit)
+    return mcp.tools["get_messages"](chat=chat, limit=limit, **extra)
 
 
 def _payload(blocks) -> dict:
     return json.loads(blocks[0].text)
+
+
+def _at(year: int, month: int, day: int, hour: int = 12) -> int:
+    return int(datetime(year, month, day, hour).timestamp() * 1000)
 
 
 def test_returns_messages_oldest_first(store: Archive) -> None:
@@ -207,3 +212,76 @@ def test_non_image_media_stays_text_only(store: Archive) -> None:
     assert len(blocks) == 1
     assert payload["messages"][0]["kind"] == "file"
     assert payload["images"] == []
+
+
+def test_a_window_the_archive_covers_never_asks_line(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [
+            to_row(msg("m1", ms=_at(2026, 10, 5)), names, "c1"),
+            to_row(msg("m2", ms=_at(2026, 10, 6)), names, "c1"),
+        ]
+    )
+    reader = FakeReader(chats=[FAMILY], recent=[msg("m9", ms=_at(2026, 11, 1))])
+
+    payload = _payload(_call(reader, store, limit=2, after="2026-10-01", before="2026-10-31"))
+
+    assert payload["source"] == "db"
+    assert [message["id"] for message in payload["messages"]] == ["m1", "m2"]
+    assert ("recent", "c1", 50) not in reader.calls
+    assert payload["window"] == {"after": "2026-10-01", "before": "2026-10-31"}
+
+
+def test_a_window_fills_the_rest_from_line(store: Archive) -> None:
+    store.upsert_messages([to_row(msg("m1", ms=_at(2026, 10, 5)), {"u1": "Soda"}, "c1")])
+    reader = FakeReader(
+        chats=[FAMILY],
+        recent=[msg("m2", ms=_at(2026, 10, 6)), msg("m3", ms=_at(2026, 10, 7))],
+    )
+
+    payload = _payload(_call(reader, store, limit=3, after="2026-10-01", before="2026-10-31"))
+
+    assert payload["source"] == "mixed"
+    assert [message["id"] for message in payload["messages"]] == ["m1", "m2", "m3"]
+
+
+def test_a_window_stops_at_its_older_edge(store: Archive) -> None:
+    reader = FakeReader(chats=[FAMILY], recent=[msg("m1", ms=_at(2026, 9, 1))])
+
+    payload = _payload(_call(reader, store, limit=5, after="2026-10-01"))
+
+    assert payload["returned"] == 0
+    assert payload["partial"] is False
+    assert payload["stale"] is False
+
+
+def test_a_window_reports_partial_when_the_budget_runs_out(store: Archive) -> None:
+    stamps = {f"m{i}": _at(2026, 10, i) for i in range(5, 11)}
+    reader = FakeReader(
+        chats=[FAMILY],
+        recent=[msg("m10", ms=stamps["m10"])],
+        previous={f"m{i}": [msg(f"m{i - 1}", ms=stamps[f"m{i - 1}"])] for i in range(6, 11)},
+    )
+
+    payload = _payload(_call(reader, store, limit=10, after="2026-10-01", before="2026-11-01"))
+
+    assert payload["returned"] == 6
+    assert payload["partial"] is True
+
+
+def test_an_empty_window_is_rejected(store: Archive) -> None:
+    reader = FakeReader(chats=[FAMILY], recent=[msg("m1")])
+
+    with pytest.raises(ToolError, match="earlier than"):
+        _call(reader, store, after="2026-11-30", before="2026-11-01")
+
+
+def test_a_window_works_offline(store: Archive) -> None:
+    store.upsert_messages([to_row(msg("m1", ms=_at(2026, 10, 5)), {"u1": "Soda"}, "c1")])
+    reader = FakeReader(chats=[FAMILY], recent=ToolError("LINE request failed: offline"))
+
+    payload = _payload(_call(reader, store, limit=5, after="2026-10-01"))
+
+    assert payload["stale"] is True
+    assert payload["source"] == "db"
+    assert [message["id"] for message in payload["messages"]] == ["m1"]
