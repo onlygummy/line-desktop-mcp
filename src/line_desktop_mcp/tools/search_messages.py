@@ -83,8 +83,8 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         `since_days`. A bare date means local midnight, and `before` includes
         the whole day. When both `after` and `since_days` are given, `after`
         wins. `order="oldest"` answers "where did this start", and `offset`
-        pages through more hits; `truncated: true` means the limit was reached
-        and there may be more.
+        pages through more hits; `truncated: true` means more hits exist
+        after this page.
 
         `from_sender` accepts a mid or part of a name, matched only against
         senders already archived. Pass `chats` to narrow the search, and
@@ -124,7 +124,9 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
 
         rows = archive.search(
             query,
-            limit=limit,
+            # One extra row is how we know another page exists; the archive
+            # itself never has to think about paging.
+            limit=limit + 1,
             offset=offset,
             chat_mids=chat_mids,
             after_ms=after_ms,
@@ -132,6 +134,8 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             from_mid=from_mid,
             newest_first=order != "oldest",
         )
+        truncated = len(rows) > limit
+        rows = rows[:limit]
         coverage = archive.coverage(
             chat_mids=chat_mids, after_ms=after_ms, before_ms=before_ms, from_mid=from_mid
         )
@@ -157,7 +161,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             },
             "hits": hits,
             "returned": len(hits),
-            "truncated": len(rows) >= limit,
+            "truncated": truncated,
             "chats_hit": _chats_hit(rows),
             "coverage": {
                 "messages_scanned": coverage["scanned"],

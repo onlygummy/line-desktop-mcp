@@ -21,7 +21,7 @@ search_messages(
   archived chat. An ambiguous or unknown name fails with the candidate list, the
   same way `get_messages` does.
 - `limit` is 1 to 100 hits. `offset` skips hits for paging, and
-  `truncated: true` means the limit was reached and there may be more.
+  `truncated: true` means more hits exist after this page.
 - `after` and `before` take a date (`YYYY-MM-DD`) or an ISO timestamp. A bare
   date means local midnight, and `before` includes the whole day. When both
   `after` and `since_days` are given, `after` wins. An empty window is refused.
