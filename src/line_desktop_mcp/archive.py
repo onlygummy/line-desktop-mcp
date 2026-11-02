@@ -206,6 +206,28 @@ class Archive:
             cur = self._connection().execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
 
+    def messages_in(
+        self,
+        chat_mid: str,
+        limit: int,
+        *,
+        after_ms: int | None = None,
+        before_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Newest archived messages inside a time window, newest first."""
+        where, bounds = _filters("", None, after_ms, before_ms, None)
+        sql = (
+            "SELECT id, chat_mid, from_mid, from_name, delivered_ms, kind, text, "
+            "sealed, content_type, raw_json FROM messages WHERE chat_mid = ?"
+        )
+        params = [chat_mid, *bounds]
+        sql += where
+        sql += " ORDER BY delivered_ms DESC, id DESC LIMIT ?"
+        params.append(max(1, int(limit)))
+        with self._lock:
+            cur = self._connection().execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
+
     def oldest(self, chat_mid: str) -> dict[str, Any] | None:
         """Oldest archived message of one chat, used as a paging cursor."""
         with self._lock:

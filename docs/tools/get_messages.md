@@ -1,13 +1,25 @@
 # get_messages
 
 ```text
-get_messages(chat: str, limit: int = 30)
+get_messages(
+    chat: str,
+    limit: int = 30,
+    after: str | None = None,
+    before: str | None = None,
+)
 ```
 
 - `chat` accepts a chat mid or part of a chat name. An exact mid wins, then an
   exact name, then a substring. If more than one chat matches, the call fails
   with the candidate list instead of guessing.
-- `limit` is 1 to 200.
+- `limit` is 1 to 200 and caps how many messages come back.
+- `after` and `before` read a time window instead of the newest slice. They take
+  a date (`YYYY-MM-DD`) or an ISO timestamp; a bare date means local midnight,
+  and `before` includes the whole day. An empty window is refused.
+- A window is answered from the archive first, so a window read before costs
+  nothing and works offline. LINE cannot jump to a date, so filling the rest
+  means walking back from the newest message, at most five pages; `partial: true`
+  says the budget ran out before the window's older edge.
 - Messages are ordered oldest first and shaped `{id, at (local ISO 8601), from,
   kind, text, ...}`.
 - `kind` is `text`, `image`, `video`, `audio`, `sticker`, `file`, `location`,
@@ -18,5 +30,6 @@ get_messages(chat: str, limit: int = 30)
   "sent a sticker (package 11537)" or "sent a file report.pdf (1234 bytes)".
 
 The tool returns MCP content blocks: one text block with JSON, then one image block
-per image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned, source,
-e2ee_ready, stale, partial, images[{message_id,path}], images_failed[]}`.
+per image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned,
+window{after,before}, source, e2ee_ready, stale, partial,
+images[{message_id,path}], images_failed[]}`.
