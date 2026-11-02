@@ -7,7 +7,7 @@ Commands, tests, source layout, and architecture notes.
 ```bash
 uv sync
 uv run line-desktop-mcp
-uv run pytest                  # 193 tests, no network, Node or Tk needed
+uv run pytest                  # 199 tests, no network, Node or Tk needed
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy

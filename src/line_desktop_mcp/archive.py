@@ -249,6 +249,7 @@ class Archive:
         after_ms: int | None = None,
         before_ms: int | None = None,
         from_mid: str | None = None,
+        kinds: list[str] | None = None,
     ) -> dict[str, int]:
         """How much a search would look at, and what it cannot read.
 
@@ -256,7 +257,7 @@ class Archive:
         counts every row the filters select, so the difference is what the
         search silently skips (images, stickers, sealed messages).
         """
-        where, params = _filters("", chat_mids, after_ms, before_ms, from_mid)
+        where, params = _filters("", chat_mids, after_ms, before_ms, from_mid, kinds)
         sql = (
             "SELECT COUNT(*) AS in_scope, "
             "SUM(text IS NOT NULL) AS scanned, "
@@ -293,7 +294,7 @@ class Archive:
 
     def search(
         self,
-        text: str,
+        text: str | None,
         *,
         limit: int,
         offset: int = 0,
@@ -301,18 +302,26 @@ class Archive:
         after_ms: int | None = None,
         before_ms: int | None = None,
         from_mid: str | None = None,
+        kinds: list[str] | None = None,
         newest_first: bool = True,
     ) -> list[dict[str, Any]]:
-        """Case-insensitive substring search over archived text."""
+        """Case-insensitive substring search over archived text.
+
+        `text=None` skips the text match, which is how a `kinds` filter finds
+        images and other messages that never had text.
+        """
         sql = (
             "SELECT m.id, m.chat_mid, m.from_mid, m.from_name, m.delivered_ms, "
             "m.kind, m.text, m.sealed, m.content_type, m.raw_json, "
             "c.name AS chat_name "
             "FROM messages m LEFT JOIN chats c ON c.mid = m.chat_mid "
-            "WHERE m.text IS NOT NULL AND m.text LIKE ? ESCAPE '\\'"
+            "WHERE 1=1"
         )
-        params: list[Any] = [f"%{_escape_like(text)}%"]
-        where, more = _filters("m.", chat_mids, after_ms, before_ms, from_mid)
+        params: list[Any] = []
+        if text is not None:
+            sql += " AND m.text IS NOT NULL AND m.text LIKE ? ESCAPE '\\'"
+            params.append(f"%{_escape_like(text)}%")
+        where, more = _filters("m.", chat_mids, after_ms, before_ms, from_mid, kinds)
         sql += where
         params.extend(more)
         # The id breaks ties so paging stays stable for messages sharing a
@@ -389,6 +398,7 @@ def _filters(
     after_ms: int | None,
     before_ms: int | None,
     from_mid: str | None,
+    kinds: list[str] | None = None,
 ) -> tuple[str, list[Any]]:
     """The `WHERE` fragment shared by a search and its coverage count."""
     sql = ""
@@ -405,6 +415,9 @@ def _filters(
     if from_mid:
         sql += f" AND {prefix}from_mid = ?"
         params.append(from_mid)
+    if kinds:
+        sql += f" AND {prefix}kind IN ({','.join('?' * len(kinds))})"
+        params.extend(kinds)
     return sql, params
 
 
