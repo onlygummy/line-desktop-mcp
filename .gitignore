@@ -17,3 +17,9 @@ session/
 *.session.json
 tokens.json
 qr.txt
+
+# Local chat archive: plaintext messages plus downloaded media.
+archive.db
+archive.db-wal
+archive.db-shm
+media/

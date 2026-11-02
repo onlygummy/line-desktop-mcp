@@ -64,6 +64,9 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["line_desktop_mcp", "stubs"]
+
 [tool.mypy]
 python_version = "3.10"
 files = ["src/line_desktop_mcp"]

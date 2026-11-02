@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from okline.qrterm import qr_matrix
 
+from line_desktop_mcp import qr_window
 from line_desktop_mcp.qr_window import (
     TARGET_QR_PX,
     card_size,
@@ -63,3 +64,16 @@ def test_scale_for_fits_the_reserved_box() -> None:
 def test_scale_for_never_returns_a_hairline() -> None:
     assert scale_for(0) == 2
     assert scale_for(1000) == 2
+
+
+def test_a_window_that_cannot_launch_is_reported(monkeypatch) -> None:
+    def explode(*args, **kwargs):
+        raise OSError("no such interpreter")
+
+    monkeypatch.setattr(qr_window.subprocess, "Popen", explode)
+    window = qr_window.QRWindow()
+
+    window.start()
+
+    assert window.error is not None
+    assert "could not be started" in window.error

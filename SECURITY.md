@@ -2,19 +2,21 @@
 
 ## What this server holds
 
-`line-desktop-mcp` 4.0.0 logs in to your own LINE account by QR and stores that
-login in one file. The file contains the access token, the refresh token, and
-the E2EE / Letter Sealing keychain.
+`line-desktop-mcp` 4.0.0 logs in to your own LINE account by QR and keeps a
+local, plaintext copy of what it reads. Everything lives in one directory:
+`LINE_DESKTOP_MCP_HOME` when set, otherwise `%LOCALAPPDATA%\line-desktop-mcp` on
+Windows or `~/.local/share/line-desktop-mcp` elsewhere. The paths and what each
+one holds are listed in [local storage](docs/storage.md).
 
-The location is:
+The session file is a password. The archive and the media directory are
+plaintext copies of your chats and images. Treat the whole directory as
+sensitive. `.gitignore` excludes `session/`, `*.session.json`, `tokens.json`,
+`qr.txt`, `archive.db`, `archive.db-wal`, `archive.db-shm`, and `media/`, but a
+backup or cloud sync of the folder would still copy it somewhere else. Do not
+commit it, and do not copy or sync it to another machine or a cloud drive.
 
-1. `LINE_DESKTOP_MCP_SESSION`, if set;
-2. otherwise `%LOCALAPPDATA%\line-desktop-mcp\session.json` on Windows;
-3. otherwise `~/.local/share/line-desktop-mcp/session.json`.
-
-Treat the file as a password. Do not commit it. `.gitignore` already excludes
-`session/`, `*.session.json`, `tokens.json`, and `qr.txt`. Do not copy or sync
-it to another machine or to a cloud drive.
+To remove everything, delete the whole directory. A new login creates a new
+session; archived messages from before are gone.
 
 ## If the session file leaks
 
@@ -23,25 +25,30 @@ Anyone with the file can act as the logged-in device, so revoke it:
 1. Open the LINE app and go to Settings → Account → logged-in devices.
 2. Remove the device.
 3. Delete the session file.
-4. Call `line_login` again to log in from scratch.
+4. Call `login` again to log in from scratch.
 
 ## The QR window
 
-`line_login` opens a Tk window on the machine running the server. It shows a QR
+`login` opens a Tk window on the machine running the server. It shows a QR
 code, and sometimes a PIN. This window authorises a new device on the account.
 Anyone who can see or photograph it can complete the login.
 
-Log in somewhere private. The Cancel button, or closing the window, stops the
-login and saves nothing.
+Log in somewhere private. Closing the window stops the login and saves nothing.
 
 ## Threat model for an MCP client
 
 stdio has no authentication. Whatever client can spawn the server can call
-every tool it exposes. Today that tool is `line_login` only: the client cannot
-send messages, read chats, mark a chat as read, or delete anything.
+every tool it exposes. The server has three tools: `login`, `list_chats`, and
+`get_messages`. The client can read chats, their messages, and their images. It
+cannot send messages, mark a chat as read, or delete anything in LINE.
 
-Read-only tools are planned. When they arrive, the same client will be able to
-read chats and their content. Grant the server to a client you trust.
+Every tool writes on this machine. `login` writes the session; `list_chats` and
+`get_messages` write the archive and the image backups. A client that can call
+them can also fill the local disk over time.
+
+Tool results become model context at the provider the user chose. The MCP
+client and that provider are part of the trust boundary: grant the server only
+to a client and a model provider you trust.
 
 The server offers no network transport. Its only channel is stdio.
 
