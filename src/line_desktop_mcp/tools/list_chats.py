@@ -9,6 +9,7 @@ from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from line_desktop_mcp import lookup
 from line_desktop_mcp.archive import Archive
 from line_desktop_mcp.reader import LineReader
 
@@ -43,9 +44,10 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
 
         stale = False
         try:
-            chats = reader.directory()
+            chats = lookup.directory(reader, archive)
             if query and not _filter(chats, unread_only, query):
-                chats = reader.directory(refresh=True)
+                # LINE caps the listing, so a miss gets one refetch.
+                chats = lookup.directory(reader, archive, refresh=True)
         except ToolError:
             chats = archive.chats()
             if not chats:
@@ -53,7 +55,6 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             stale = True
 
         chats = _filter(chats, unread_only, query)
-        archive.upsert_chats(chats)
 
         shown = chats[:limit]
         return {

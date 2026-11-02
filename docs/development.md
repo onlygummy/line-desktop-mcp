@@ -7,7 +7,7 @@ Commands, tests, source layout, and architecture notes.
 ```bash
 uv sync
 uv run line-desktop-mcp
-uv run pytest                  # 127 tests, no network, Node or Tk needed
+uv run pytest                  # 135 tests, no network, Node or Tk needed
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy
@@ -26,7 +26,7 @@ src/line_desktop_mcp/
   paths.py         # where the session, database and media live
   reader.py        # LineReader: one LINE client, ensure_ready(), caches, error mapping
   lookup.py        # chat lookup by mid or name, shared by the read tools
-  history.py       # page backwards through LINE and archive what comes back
+  history.py       # newest page, then older pages: keep one chat archived
   archive.py       # SQLite archive: chats, messages, media, search
   media.py         # magic-byte detection, safe file names, atomic writes
   view.py          # message -> model view / archive row, chat matching

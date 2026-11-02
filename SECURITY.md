@@ -38,13 +38,14 @@ Log in somewhere private. Closing the window stops the login and saves nothing.
 ## Threat model for an MCP client
 
 stdio has no authentication. Whatever client can spawn the server can call
-every tool it exposes. The server has three tools: `login`, `list_chats`, and
-`get_messages`. The client can read chats, their messages, and their images. It
+every tool it exposes. The server has four tools: `login`, `list_chats`,
+`get_messages`, and `search_messages`. The client can read chats, their
+messages, their images, and any text already archived across every chat. It
 cannot send messages, mark a chat as read, or delete anything in LINE.
 
-Every tool writes on this machine. `login` writes the session; `list_chats` and
-`get_messages` write the archive and the image backups. A client that can call
-them can also fill the local disk over time.
+Every tool writes on this machine. `login` writes the session; the other three
+write the archive, and `get_messages` also writes image backups. A client that
+can call them can also fill the local disk over time.
 
 Tool results become model context at the provider the user chose. The MCP
 client and that provider are part of the trust boundary: grant the server only

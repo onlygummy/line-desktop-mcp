@@ -141,6 +141,103 @@ def test_download_returns_none_when_obs_fails(session_file: Path) -> None:
     assert line.download({"id": "m1", "contentMetadata": {}}) is None
 
 
+class DirectoryApi(FakeApi):
+    """FakeApi plus the calls `LineReader.directory` makes."""
+
+    def __init__(self, *, boxes, chats, contacts):
+        super().__init__()
+        self._boxes = boxes
+        self._chats = chats
+        self._contacts = contacts
+
+    def get_message_boxes(self, **_kwargs):
+        return {"messageBoxes": self._boxes}
+
+    def get_chats(self, mids, with_members=False):
+        return {"chats": [chat for chat in self._chats if chat["chatMid"] in mids]}
+
+    def get_all_contact_ids(self):
+        return list(self._contacts)
+
+    def get_contacts(self, mids):
+        return {
+            "contacts": {
+                mid: {"contact": {"displayName": self._contacts[mid]}}
+                for mid in mids
+                if mid in self._contacts
+            }
+        }
+
+
+def _box(mid: str, *, sender: str = "", unread: int = 0) -> dict:
+    return {
+        "id": mid,
+        "unreadCount": unread,
+        "lastMessages": [{"from": sender or mid, "deliveredTime": 5_000, "text": "hi"}],
+    }
+
+
+def test_a_direct_chat_is_named_after_the_peer(session_file: Path) -> None:
+    api = DirectoryApi(
+        boxes=[_box("u2", sender="u2", unread=1)],
+        chats=[{"chatMid": "u2", "type": 2}],
+        contacts={"u2": "Mint"},
+    )
+
+    (chat,) = _reader(session_file, api=api).directory()
+
+    assert chat["name"] == "Mint"
+    assert chat["kind"] == "dm"
+    assert chat["unread"] == 1
+
+
+def test_a_room_is_named_after_a_member_when_the_last_message_is_ours(
+    session_file: Path,
+) -> None:
+    """A room has no `chatName`, and the sender fallback cannot help when we wrote last."""
+    api = DirectoryApi(
+        boxes=[_box("r1", sender="u1")],
+        chats=[{"chatMid": "r1", "type": 1, "memberMids": ["u1", "u3"]}],
+        contacts={"u3": "Ploy"},
+    )
+
+    (chat,) = _reader(session_file, api=api).directory()
+
+    assert chat["name"] == "Ploy"
+    assert chat["kind"] == "room"
+
+
+def test_a_named_group_keeps_its_line_name(session_file: Path) -> None:
+    api = DirectoryApi(
+        boxes=[_box("c1", sender="u2")],
+        chats=[
+            {
+                "chatMid": "c1",
+                "chatName": "หอพักหมวกแดงSCC",
+                "type": 0,
+                "extra": {"groupExtra": {"memberMids": ["u1", "u2"]}},
+            }
+        ],
+        contacts={"u2": "Mint"},
+    )
+
+    (chat,) = _reader(session_file, api=api).directory()
+
+    assert chat["name"] == "หอพักหมวกแดงSCC"
+
+
+def test_an_unresolvable_chat_keeps_the_mid_stub(session_file: Path) -> None:
+    api = DirectoryApi(
+        boxes=[_box("u9abcdef")],
+        chats=[{"chatMid": "u9abcdef", "type": 2}],
+        contacts={},
+    )
+
+    (chat,) = _reader(session_file, api=api).directory()
+
+    assert chat["name"] == "Chat u9abcd"
+
+
 def test_calls_are_serialised(session_file: Path) -> None:
     """Two tool calls must not share one requests.Session mid-flight."""
     line = _reader(session_file)

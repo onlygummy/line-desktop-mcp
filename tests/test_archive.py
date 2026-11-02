@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from line_desktop_mcp import archive as archive_module
 from line_desktop_mcp import paths
 from line_desktop_mcp.archive import SCHEMA_VERSION, Archive
 
@@ -97,6 +98,24 @@ def test_messages_come_back_newest_first_and_respect_the_cursor(archive: Archive
     assert [row["id"] for row in older] == ["m1"]
 
 
+def test_a_renamed_sender_replaces_the_archived_name(archive: Archive) -> None:
+    archive.upsert_messages([_row(from_name="Soda")])
+    archive.upsert_messages([_row(from_name="Soda S.")])
+
+    (row,) = archive.messages("c1", limit=10)
+
+    assert row["from_name"] == "Soda S."
+
+
+def test_a_missing_sender_name_does_not_erase_the_archived_one(archive: Archive) -> None:
+    archive.upsert_messages([_row(from_name="Soda")])
+    archive.upsert_messages([_row(from_name=None)])
+
+    (row,) = archive.messages("c1", limit=10)
+
+    assert row["from_name"] == "Soda"
+
+
 def test_chat_upsert_keeps_a_known_name(archive: Archive) -> None:
     archive.upsert_chats([{"mid": "c1", "name": "Family", "kind": "group", "unread": 2}])
     archive.upsert_chats([{"mid": "c1", "name": None, "kind": "group", "unread": 0}])
@@ -107,15 +126,23 @@ def test_chat_upsert_keeps_a_known_name(archive: Archive) -> None:
     assert chat["unread"] == 0
 
 
-def test_chats_can_be_searched_case_insensitively(archive: Archive) -> None:
-    archive.upsert_chats(
-        [
-            {"mid": "c1", "name": "Family", "kind": "group", "unread": 0},
-            {"mid": "c2", "name": "Work Team", "kind": "group", "unread": 0},
-        ]
-    )
+def test_the_chat_upsert_writes_only_what_changed(
+    archive: Archive, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read tools persist the listing every call; unchanged rows must stay untouched."""
+    monkeypatch.setattr(archive_module.time, "time", lambda: 100.0)
+    archive.upsert_chats([{"mid": "c1", "name": "Family", "kind": "group", "unread": 2}])
 
-    assert [chat["mid"] for chat in archive.find_chats("WORK")] == ["c2"]
+    monkeypatch.setattr(archive_module.time, "time", lambda: 200.0)
+    archive.upsert_chats([{"mid": "c1", "name": "Family", "kind": "group", "unread": 2}])
+    unchanged = archive._connection().execute("SELECT updated_ms FROM chats").fetchone()
+
+    monkeypatch.setattr(archive_module.time, "time", lambda: 300.0)
+    archive.upsert_chats([{"mid": "c1", "name": "Family", "kind": "group", "unread": 0}])
+    changed = archive._connection().execute("SELECT updated_ms FROM chats").fetchone()
+
+    assert unchanged["updated_ms"] == 100_000
+    assert changed["updated_ms"] == 300_000
 
 
 def test_media_is_stored_inside_the_media_directory(archive: Archive, tmp_path: Path) -> None:

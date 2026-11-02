@@ -15,6 +15,9 @@ whole directory; see [configuration](configuration.md).
 | `archive.db` | SQLite with WAL, tables `chats`, `messages`, `media` |
 | `media\<chat_mid>\<message_id>.<ext>` | downloaded image backups |
 
+Reading chats also saves the chat list, so names and unread counts are still
+there on a cold start with LINE unreachable.
+
 ## Plaintext and removal
 
 The files in the directory are plaintext, so treat the whole directory as

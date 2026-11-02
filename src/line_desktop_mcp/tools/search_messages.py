@@ -47,7 +47,8 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         ] = None,
         sync: Annotated[
             bool,
-            "First page older messages from LINE for `chats` (slower; requires chats).",
+            "Read the newest page of `chats` and page older messages from LINE "
+            "first (slower; requires chats).",
         ] = False,
     ) -> dict[str, Any]:
         """Search archived messages for a piece of text, newest hits first.
@@ -56,8 +57,8 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         has read. Read `coverage` before concluding that something does not
         exist: a small `messages_searched` means most history was never read.
         Pass `chats` to narrow the search to specific chats, and `sync=true` to
-        page older messages from LINE for those chats first (at most three pages
-        per chat).
+        read the newest page of those chats and page older messages from LINE
+        first (at most three older pages per chat).
 
         Only plain text is searched: images, stickers, and sealed messages that
         could not be decrypted are not matched.
@@ -66,6 +67,9 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         if not query.strip():
             raise ToolError("`query` must not be empty.")
 
+        # Read the directory first: it saves chat names into the archive, so the
+        # join below can label every hit even when `list_chats` was never called.
+        directory = _directory_or_empty(reader, archive)
         chosen = lookup.scope(reader, archive, chats) if chats else []
         if sync and not chosen:
             raise ToolError(
@@ -99,7 +103,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "chats_hit": _chats_hit(rows),
             "coverage": {
                 "messages_searched": archive.count(chat_mids, since_ms),
-                "chats_total": len(_directory_or_empty(reader, archive)),
+                "chats_total": len(directory),
             },
             "api_pages": api_pages,
         }
@@ -117,7 +121,7 @@ def _chats_hit(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _directory_or_empty(reader: LineReader, archive: Archive) -> list[dict[str, Any]]:
     try:
-        return lookup.directory(reader, archive)
+        return lookup.directory_or_archive(reader, archive)
     except ToolError:
         return []
 
