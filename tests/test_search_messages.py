@@ -77,6 +77,29 @@ def test_a_hit_is_named_even_when_no_listing_was_archived(store: Archive) -> Non
     assert result["hits"][0]["chat"]["name"] == "Family"
 
 
+def test_truncated_is_false_when_the_limit_covers_every_hit(store: Archive) -> None:
+    store.upsert_messages([to_row(_msg("m1", "invoice"), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice", limit=1)
+
+    assert result["returned"] == 1
+    assert result["truncated"] is False
+
+
+def test_truncated_counts_from_the_offset(store: Archive) -> None:
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice", ms=1_000), {"u1": "Soda"}, "c1"),
+            to_row(_msg("m2", "invoice", ms=2_000), {"u1": "Soda"}, "c1"),
+        ]
+    )
+
+    last = _call(FakeReader(chats=[FAMILY]), store, query="invoice", limit=1, offset=1)
+
+    assert [hit["message"]["id"] for hit in last["hits"]] == ["m1"]
+    assert last["truncated"] is False
+
+
 def test_returns_nothing_when_the_text_is_absent(store: Archive) -> None:
     store.upsert_messages([to_row(_msg("m1", "hello"), {"u1": "Soda"}, "c1")])
 
