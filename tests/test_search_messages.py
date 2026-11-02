@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -16,14 +17,18 @@ FAMILY = {"mid": "c1", "name": "Family", "kind": "group", "unread": 0}
 WORK = {"mid": "c2", "name": "Work Team", "kind": "group", "unread": 0}
 
 
-def _msg(message_id: str, text: str, ms: int = 1_000) -> dict:
+def _msg(message_id: str, text: str, ms: int = 1_000, sender: str = "u1") -> dict:
     return {
         "id": message_id,
-        "from": "u1",
+        "from": sender,
         "deliveredTime": ms,
         "contentType": 0,
         "text": text,
     }
+
+
+def _at(year: int, month: int, day: int, hour: int = 12) -> int:
+    return int(datetime(year, month, day, hour).timestamp() * 1000)
 
 
 @pytest.fixture()
@@ -58,7 +63,8 @@ def test_reports_coverage_and_no_api_work_by_default(store: Archive) -> None:
 
     assert result["scope"] == "archive"
     assert result["api_pages"] == 0
-    assert result["coverage"]["messages_searched"] == 1
+    assert result["coverage"]["messages_scanned"] == 1
+    assert result["coverage"]["messages_in_scope"] == 1
     assert result["coverage"]["chats_total"] == 1
 
 
@@ -152,3 +158,121 @@ def test_sync_still_searches_when_line_has_nothing_more(store: Archive) -> None:
 
     assert result["api_pages"] == 1  # the newest page, which brought nothing new
     assert result["returned"] == 1
+
+
+def test_reports_the_filters_it_applied(store: Archive) -> None:
+    store.upsert_messages([to_row(_msg("m1", "invoice"), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice", from_sender="Soda")
+
+    assert result["filters"] == {
+        "chats": None,
+        "after": None,
+        "before": None,
+        "from": {"mid": "u1", "name": "Soda"},
+        "order": "newest",
+        "offset": 0,
+    }
+
+
+def test_a_date_window_includes_both_ends(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [
+            to_row(_msg("jul", "invoice", ms=_at(2026, 10, 31, 23)), names, "c1"),
+            to_row(_msg("first", "invoice", ms=_at(2026, 11, 1, 0)), names, "c1"),
+            to_row(_msg("last", "invoice", ms=_at(2026, 11, 30, 23)), names, "c1"),
+            to_row(_msg("next", "invoice", ms=_at(2026, 12, 1, 0)), names, "c1"),
+        ]
+    )
+
+    result = _call(
+        FakeReader(chats=[FAMILY]),
+        store,
+        query="invoice",
+        after="2026-11-01",
+        before="2026-11-30",
+    )
+
+    assert [hit["message"]["id"] for hit in result["hits"]] == ["last", "first"]
+    assert result["filters"]["after"] == "2026-11-01"
+    assert result["filters"]["before"] == "2026-11-30"
+
+
+def test_after_wins_over_since_days(store: Archive) -> None:
+    store.upsert_messages([to_row(_msg("m1", "invoice"), {"u1": "Soda"}, "c1")])
+
+    result = _call(
+        FakeReader(chats=[FAMILY]),
+        store,
+        query="invoice",
+        after="2030-01-01",
+        since_days=3650,
+    )
+
+    assert result["hits"] == []
+
+
+def test_a_bad_date_is_rejected(store: Archive) -> None:
+    with pytest.raises(ToolError, match="must be a date"):
+        _call(FakeReader(chats=[FAMILY]), store, query="invoice", after="01/11/2026")
+
+
+def test_an_empty_window_is_rejected(store: Archive) -> None:
+    with pytest.raises(ToolError, match="earlier than"):
+        _call(
+            FakeReader(chats=[FAMILY]),
+            store,
+            query="invoice",
+            after="2026-11-30",
+            before="2026-11-01",
+        )
+
+
+def test_sender_can_be_a_name_or_a_mid(store: Archive) -> None:
+    names = {"u1": "Soda", "u2": "Mint"}
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice", sender="u1"), names, "c1"),
+            to_row(_msg("m2", "invoice", ms=2_000, sender="u2"), names, "c1"),
+        ]
+    )
+
+    by_name = _call(FakeReader(chats=[FAMILY]), store, query="invoice", from_sender="Soda")
+    by_mid = _call(FakeReader(chats=[FAMILY]), store, query="invoice", from_sender="u2")
+
+    assert [hit["message"]["id"] for hit in by_name["hits"]] == ["m1"]
+    assert [hit["message"]["id"] for hit in by_mid["hits"]] == ["m2"]
+
+
+def test_an_ambiguous_sender_lists_candidates(store: Archive) -> None:
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice", sender="u1"), {"u1": "Soda"}, "c1"),
+            to_row(_msg("m2", "invoice", sender="u2"), {"u2": "Soda"}, "c1"),
+        ]
+    )
+
+    with pytest.raises(ToolError, match="2 senders match"):
+        _call(FakeReader(chats=[FAMILY]), store, query="invoice", from_sender="Soda")
+
+
+def test_an_unknown_sender_is_reported(store: Archive) -> None:
+    with pytest.raises(ToolError, match="No archived sender"):
+        _call(FakeReader(chats=[FAMILY]), store, query="invoice", from_sender="Nobody")
+
+
+def test_order_and_offset_page_through_hits(store: Archive) -> None:
+    store.upsert_messages(
+        [to_row(_msg(f"m{i}", "invoice", ms=1_000 + i), {"u1": "Soda"}, "c1") for i in range(3)]
+    )
+    reader = FakeReader(chats=[FAMILY])
+
+    newest = _call(reader, store, query="invoice", limit=2)
+    oldest = _call(reader, store, query="invoice", limit=2, order="oldest")
+    second = _call(reader, store, query="invoice", limit=1, offset=1)
+
+    assert [hit["message"]["id"] for hit in newest["hits"]] == ["m2", "m1"]
+    assert newest["truncated"] is True
+    assert [hit["message"]["id"] for hit in oldest["hits"]] == ["m0", "m1"]
+    assert [hit["message"]["id"] for hit in second["hits"]] == ["m1"]

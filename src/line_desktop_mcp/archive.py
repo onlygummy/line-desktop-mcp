@@ -220,28 +220,68 @@ class Archive:
             )
             return dict(row) if row else None
 
-    def count(self, chat_mids: list[str] | None = None, since_ms: int | None = None) -> int:
-        """How many messages a search would have looked at."""
-        sql = "SELECT COUNT(*) FROM messages WHERE 1=1"
+    def coverage(
+        self,
+        *,
+        chat_mids: list[str] | None = None,
+        after_ms: int | None = None,
+        before_ms: int | None = None,
+        from_mid: str | None = None,
+    ) -> dict[str, int]:
+        """How much a search would look at, and what it cannot read.
+
+        `scanned` counts the rows the text match can actually see; `in_scope`
+        counts every row the filters select, so the difference is what the
+        search silently skips (images, stickers, sealed messages).
+        """
+        where, params = _filters("", chat_mids, after_ms, before_ms, from_mid)
+        sql = (
+            "SELECT COUNT(*) AS in_scope, "
+            "SUM(text IS NOT NULL) AS scanned, "
+            "SUM(sealed = 1) AS sealed "
+            "FROM messages WHERE 1=1"
+        )
+        with self._lock:
+            row = self._connection().execute(sql + where, params).fetchone()
+        return {
+            "in_scope": int(row["in_scope"] or 0),
+            "scanned": int(row["scanned"] or 0),
+            "sealed": int(row["sealed"] or 0),
+        }
+
+    def senders(self, chat_mids: list[str] | None = None) -> list[dict[str, Any]]:
+        """Senders already archived, most recent name first.
+
+        One mid can appear more than once after a rename; the first row for a
+        mid is the name of their latest message, which is the one a user
+        recognises.
+        """
+        sql = (
+            "SELECT from_mid, from_name, COUNT(*) AS hits, MAX(delivered_ms) AS last_ms "
+            "FROM messages WHERE from_mid IS NOT NULL"
+        )
         params: list[Any] = []
         if chat_mids:
             sql += f" AND chat_mid IN ({','.join('?' * len(chat_mids))})"
             params.extend(chat_mids)
-        if since_ms is not None:
-            sql += " AND delivered_ms >= ?"
-            params.append(int(since_ms))
+        sql += " GROUP BY from_mid, from_name ORDER BY last_ms DESC, hits DESC"
         with self._lock:
-            return int(self._connection().execute(sql, params).fetchone()[0])
+            cur = self._connection().execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
 
     def search(
         self,
         text: str,
         *,
         limit: int,
+        offset: int = 0,
         chat_mids: list[str] | None = None,
-        since_ms: int | None = None,
+        after_ms: int | None = None,
+        before_ms: int | None = None,
+        from_mid: str | None = None,
+        newest_first: bool = True,
     ) -> list[dict[str, Any]]:
-        """Case-insensitive substring search over archived text, newest first."""
+        """Case-insensitive substring search over archived text."""
         sql = (
             "SELECT m.id, m.chat_mid, m.from_mid, m.from_name, m.delivered_ms, "
             "m.kind, m.text, m.sealed, m.content_type, m.raw_json, "
@@ -250,14 +290,14 @@ class Archive:
             "WHERE m.text IS NOT NULL AND m.text LIKE ? ESCAPE '\\'"
         )
         params: list[Any] = [f"%{_escape_like(text)}%"]
-        if chat_mids:
-            sql += f" AND m.chat_mid IN ({','.join('?' * len(chat_mids))})"
-            params.extend(chat_mids)
-        if since_ms is not None:
-            sql += " AND m.delivered_ms >= ?"
-            params.append(int(since_ms))
-        sql += " ORDER BY m.delivered_ms DESC LIMIT ?"
-        params.append(max(1, int(limit)))
+        where, more = _filters("m.", chat_mids, after_ms, before_ms, from_mid)
+        sql += where
+        params.extend(more)
+        # The id breaks ties so paging stays stable for messages sharing a
+        # millisecond, which LINE does send in bursts.
+        direction = "DESC" if newest_first else "ASC"
+        sql += f" ORDER BY m.delivered_ms {direction}, m.id {direction} LIMIT ? OFFSET ?"
+        params.extend([max(1, int(limit)), max(0, int(offset))])
         with self._lock:
             cur = self._connection().execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
@@ -319,6 +359,31 @@ class Archive:
                 ids,
             )
             return {str(row["message_id"]): dict(row) for row in cur.fetchall()}
+
+
+def _filters(
+    prefix: str,
+    chat_mids: list[str] | None,
+    after_ms: int | None,
+    before_ms: int | None,
+    from_mid: str | None,
+) -> tuple[str, list[Any]]:
+    """The `WHERE` fragment shared by a search and its coverage count."""
+    sql = ""
+    params: list[Any] = []
+    if chat_mids:
+        sql += f" AND {prefix}chat_mid IN ({','.join('?' * len(chat_mids))})"
+        params.extend(chat_mids)
+    if after_ms is not None:
+        sql += f" AND {prefix}delivered_ms >= ?"
+        params.append(int(after_ms))
+    if before_ms is not None:
+        sql += f" AND {prefix}delivered_ms < ?"
+        params.append(int(before_ms))
+    if from_mid:
+        sql += f" AND {prefix}from_mid = ?"
+        params.append(from_mid)
+    return sql, params
 
 
 def _escape_like(text: str) -> str:

@@ -157,6 +157,26 @@ def test_media_is_stored_inside_the_media_directory(archive: Archive, tmp_path: 
     assert archive.media_for(["m1"])["m1"]["bytes"] == 4
 
 
+def test_senders_are_grouped_with_the_latest_name(archive: Archive) -> None:
+    archive.upsert_messages(
+        [
+            _row(id="m1", from_mid="u1", from_name="Soda", delivered_ms=1_000),
+            _row(id="m2", from_mid="u1", from_name="Soda S.", delivered_ms=5_000),
+            _row(id="m3", from_mid="u2", from_name="Mint", delivered_ms=2_000),
+        ]
+    )
+
+    rows = archive.senders()
+    names = {row["from_mid"]: row["from_name"] for row in rows}
+
+    assert [(row["from_mid"], row["from_name"]) for row in rows] == [
+        ("u1", "Soda S."),  # the latest name is listed first
+        ("u2", "Mint"),
+        ("u1", "Soda"),
+    ]
+    assert names["u2"] == "Mint"
+
+
 def test_media_lookup_with_no_ids_returns_nothing(archive: Archive) -> None:
     assert archive.media_for([]) == {}
 
