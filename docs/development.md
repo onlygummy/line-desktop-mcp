@@ -7,10 +7,11 @@ Commands, tests, source layout, and architecture notes.
 ```bash
 uv sync
 uv run line-desktop-mcp
-uv run pytest                  # 218 tests, no network, Node or Tk needed
-uv run ruff check src tests
-uv run ruff format --check src tests
+uv run pytest                  # 226 tests, no network, Node or Tk needed
+uv run ruff check src tests scripts
+uv run ruff format --check src tests scripts
 uv run mypy
+uv run python scripts/benchmark_search.py   # search timings on a throwaway archive
 uv build
 ```
 
@@ -45,6 +46,8 @@ tests/
   test_search_messages.py  test_unread.py  test_reader.py  test_archive.py
   test_archive_search.py  test_history.py  test_media.py  test_view.py
   test_when.py  test_qr_window.py  test_main.py  stubs.py
+scripts/
+  benchmark_search.py  # search timings on a throwaway archive
 ```
 
 ## Architecture
@@ -74,3 +77,20 @@ installers include it, and uv-managed CPython 3.14 on Windows reports Tk 8.6.
 
 The suite needs no network, Node, or Tk. `tests/stubs.py` holds the shared
 fakes.
+
+## Search performance
+
+The archive searches text with a plain `LIKE` scan: no index to maintain, and no
+second copy of every message. The cost is linear in the number of messages, so
+`scripts/benchmark_search.py` measures it on a throwaway archive before any
+storage change:
+
+```bash
+uv run python scripts/benchmark_search.py --messages 100000
+```
+
+Measured on a Windows laptop with 100,000 seeded messages: 30 ms for a common
+word, 17 ms for a rare phrase, 26 ms for a two-term `words` search. That is far
+below the point where a query feels slow, so the archive keeps the scan and
+FTS5 stays out. Re-run the script if the archive grows or the schema changes; a
+median past roughly 300 ms would be the moment to revisit it.

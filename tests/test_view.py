@@ -238,6 +238,16 @@ def test_a_snippet_falls_back_to_the_opening_when_nothing_matches() -> None:
     assert piece == f"{'a' * 10}…"
 
 
+def test_a_snippet_centres_on_the_earliest_matching_term() -> None:
+    """A `words` query is not in the text, so pick the term that appears first."""
+    text = f"{'a' * 200} invoice {'b' * 200} today {'c' * 200}"
+
+    piece = snippet(text, "today invoice", radius=5)
+
+    assert "invoice" in piece
+    assert "today" not in piece
+
+
 def test_match_chat_returns_nothing_for_an_unknown_name() -> None:
     chat, candidates = match_chat("nope", CHATS)
 

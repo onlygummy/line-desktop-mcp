@@ -51,11 +51,18 @@ def snippet(text: str | None, needle: str, radius: int = 60) -> str | None:
     """
     if not text or not needle:
         return None
-    index = text.lower().find(needle.lower())
+    lowered = text.lower()
+    index = lowered.find(needle.lower())
+    width = len(needle)
+    if index < 0:
+        # A `words` search can match terms that never sit together in query
+        # order, so centre on whichever term appears earliest in the message.
+        for term in (part for part in needle.split() if part):
+            found = lowered.find(term.lower())
+            if found >= 0 and (index < 0 or found < index):
+                index, width = found, len(term)
     if index < 0:
         index, width = 0, 0
-    else:
-        width = len(needle)
     start = max(0, index - radius)
     end = min(len(text), index + width + radius)
     piece = text[start:end].strip()

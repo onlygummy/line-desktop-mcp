@@ -11,6 +11,7 @@ search_messages(
     before: str | None = None,
     from_sender: str | None = None,
     order: "newest" | "oldest" = "newest",
+    match: "substring" | "words" = "substring",
     since_days: int | None = None,
     sync: bool = False,
 )
@@ -36,6 +37,10 @@ search_messages(
   against senders already archived. More than one match fails with the
   candidates.
 - `order` is `newest` (default) or `oldest`, for finding where a topic started.
+- `match` is `substring` (default) or `words`. `substring` needs the whole query
+  in order. `words` needs every space-separated term, in any order, so
+  `invoice today` also finds "today we paid the invoice". It helps Latin scripts
+  only: Thai has no word separators, so the query stays one term either way.
 - `since_days` keeps only messages from the last N days, from 1 to 3650.
 - `sync=true` reads the newest page of the named chats and then pages older
   messages from LINE before searching, at most three older pages per chat. The
@@ -52,9 +57,10 @@ coverage{messages_scanned, messages_in_scope, messages_sealed, chats_total},
 api_pages}`.
 
 - `filters` echoes what was applied:
-  `{chats, kinds, after, before, from{mid,name}, order, offset}`.
+  `{chats, kinds, after, before, from{mid,name}, order, match, offset}`.
 - `snippet` is about 60 characters around the first match, with `…` where it
-  was cut. It is `null` when the search had no `query`. `message.text` still
+  was cut. With `match="words"` it centres on whichever term appears earliest in
+  the message. It is `null` when the search had no `query`. `message.text` still
   carries the whole message.
 - `scope` is `archive` or `archive+api`.
 - `coverage.messages_scanned` counts the messages the text match could see. With

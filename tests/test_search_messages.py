@@ -237,6 +237,7 @@ def test_reports_the_filters_it_applied(store: Archive) -> None:
         "before": None,
         "from": {"mid": "u1", "name": "Soda"},
         "order": "newest",
+        "match": "substring",
         "offset": 0,
     }
 
@@ -375,3 +376,49 @@ def test_a_kind_only_search_has_no_snippet(store: Archive) -> None:
     result = _call(FakeReader(chats=[FAMILY]), store, kinds=["image"])
 
     assert result["hits"][0]["snippet"] is None
+
+
+def test_words_find_terms_that_are_not_next_to_each_other(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [to_row(_msg("m1", "today we paid the invoice"), names, "c1")],
+    )
+    reader = FakeReader(chats=[FAMILY])
+
+    substring = _call(reader, store, query="invoice today")
+    words = _call(reader, store, query="invoice today", match="words")
+
+    assert substring["hits"] == []
+    assert [hit["message"]["id"] for hit in words["hits"]] == ["m1"]
+    assert words["filters"]["match"] == "words"
+
+
+def test_words_combine_with_kinds_and_paging(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages(
+        [
+            to_row(_msg("m1", "invoice today", ms=1_000), names, "c1"),
+            to_row(_msg("m2", "invoice today", ms=2_000), names, "c1"),
+            to_row(_msg("m3", "invoice today", ms=3_000, ct=1), names, "c1"),
+        ]
+    )
+    reader = FakeReader(chats=[FAMILY])
+
+    result = _call(
+        reader, store, query="invoice today", match="words", kinds=["text"], limit=1, offset=1
+    )
+
+    assert [hit["message"]["id"] for hit in result["hits"]] == ["m1"]
+    assert result["truncated"] is False
+
+
+def test_a_words_snippet_centres_on_a_matched_term(store: Archive) -> None:
+    long_text = f"{'a' * 80} the invoice is ready {'b' * 80} today"
+    store.upsert_messages([to_row(_msg("m1", long_text), {"u1": "Soda"}, "c1")])
+
+    result = _call(FakeReader(chats=[FAMILY]), store, query="invoice today", match="words")
+
+    hit = result["hits"][0]
+    assert "invoice" in hit["snippet"]
+    assert hit["snippet"].startswith("…")
+    assert hit["snippet"].endswith("…")

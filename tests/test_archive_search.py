@@ -205,3 +205,39 @@ def test_messages_after_returns_the_oldest_newer_messages(archive: Archive) -> N
 
     assert [row["id"] for row in archive.messages_after("c1", 1_000, 2)] == ["m2", "m3"]
     assert archive.messages_after("c1", 3_000, 2) == []
+
+
+def test_words_match_every_term_in_any_order(archive: Archive) -> None:
+    archive.upsert_messages(
+        [
+            _row("m1", "send the invoice today please"),
+            _row("m2", "today we approved the invoice"),
+            _row("m3", "invoice only"),
+        ]
+    )
+
+    assert [row["id"] for row in archive.search("invoice today", limit=10)] == ["m1"]
+    assert [row["id"] for row in archive.search("invoice today", limit=10, match="words")] == [
+        "m2",
+        "m1",
+    ]
+
+
+def test_words_need_each_term_to_appear(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "invoice today"), _row("m2", "invoice")])
+
+    assert [row["id"] for row in archive.search("invoice receipt", limit=10, match="words")] == []
+
+
+def test_a_single_word_behaves_like_a_substring(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "the INVOICE arrived")])
+
+    assert [row["id"] for row in archive.search("invoice", limit=10, match="words")] == ["m1"]
+
+
+def test_words_escape_each_term(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "100% done today"), _row("m2", "a_b today")])
+
+    assert [row["id"] for row in archive.search("100% today", limit=10, match="words")] == ["m1"]
+    assert [row["id"] for row in archive.search("a_b today", limit=10, match="words")] == ["m2"]
+    assert archive.search("a%b today", limit=10, match="words") == []

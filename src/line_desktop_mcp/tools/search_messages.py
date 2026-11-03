@@ -67,6 +67,12 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             Literal["newest", "oldest"],
             "Newest hit first (default), or oldest first to find where a topic started.",
         ] = "newest",
+        match: Annotated[
+            Literal["substring", "words"],
+            "How `query` matches text. `substring` (default) needs the whole "
+            "query in order; `words` needs every space-separated term, in any "
+            "order.",
+        ] = "substring",
         since_days: Annotated[
             int | None,
             Field(ge=1, le=3650, description="Only messages from the last N days."),
@@ -102,6 +108,11 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         Text search only sees messages that have text: images, stickers, and
         sealed messages that could not be decrypted never match a `query`.
         Each hit carries a `snippet` around the match when `query` was given.
+
+        `match="words"` needs every space-separated term of the query, in any
+        order, so "invoice today" also finds "today's invoice". It helps Latin
+        scripts only: Thai has no word separators, which makes the query one
+        term either way.
         """
         reader.ensure_ready()
         text = query.strip() if query else None
@@ -144,6 +155,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             before_ms=before_ms,
             from_mid=from_mid,
             kinds=kinds,
+            match=match,
             newest_first=order != "oldest",
         )
         truncated = len(rows) > limit
@@ -175,6 +187,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
                 "before": before,
                 "from": sender,
                 "order": order,
+                "match": match,
                 "offset": offset,
             },
             "hits": hits,
