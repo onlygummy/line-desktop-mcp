@@ -206,6 +206,38 @@ class Archive:
             cur = self._connection().execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
 
+    def message(self, chat_mid: str, message_id: str) -> dict[str, Any] | None:
+        """One archived message of one chat, or None when it was never read."""
+        with self._lock:
+            row = (
+                self._connection()
+                .execute(
+                    "SELECT id, chat_mid, from_mid, from_name, delivered_ms, kind, "
+                    "text, sealed, content_type, raw_json "
+                    "FROM messages WHERE id = ? AND chat_mid = ?",
+                    (message_id, chat_mid),
+                )
+                .fetchone()
+            )
+            return dict(row) if row else None
+
+    def messages_after(self, chat_mid: str, after_ms: int, limit: int) -> list[dict[str, Any]]:
+        """Oldest messages newer than a moment, for the context after an anchor.
+
+        Messages that share the anchor's millisecond are excluded; LINE sends
+        bursts, so this can drop a sibling. It stays simple on purpose: the
+        anchor is already included by the caller.
+        """
+        sql = (
+            "SELECT id, chat_mid, from_mid, from_name, delivered_ms, kind, text, "
+            "sealed, content_type, raw_json FROM messages "
+            "WHERE chat_mid = ? AND delivered_ms > ? "
+            "ORDER BY delivered_ms ASC, id ASC LIMIT ?"
+        )
+        with self._lock:
+            cur = self._connection().execute(sql, (chat_mid, int(after_ms), max(1, int(limit))))
+            return [dict(row) for row in cur.fetchall()]
+
     def messages_in(
         self,
         chat_mid: str,

@@ -285,3 +285,75 @@ def test_a_window_works_offline(store: Archive) -> None:
     assert payload["stale"] is True
     assert payload["source"] == "db"
     assert [message["id"] for message in payload["messages"]] == ["m1"]
+
+
+def test_around_returns_context_on_both_sides(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages([to_row(msg(f"m{i}", ms=i * 1_000), names, "c1") for i in range(1, 6)])
+    reader = FakeReader(chats=[FAMILY])
+
+    payload = _payload(_call(reader, store, around="m3", context=1))
+
+    assert payload["source"] == "db"
+    assert payload["around"] == "m3"
+    assert [message["id"] for message in payload["messages"]] == ["m2", "m3", "m4"]
+    assert not any(isinstance(call, tuple) and call[0] == "recent" for call in reader.calls)
+
+
+def test_around_near_the_start_shows_what_exists(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages([to_row(msg(f"m{i}", ms=i * 1_000), names, "c1") for i in range(1, 4)])
+
+    payload = _payload(_call(FakeReader(chats=[FAMILY]), store, around="m2", context=5))
+
+    assert [message["id"] for message in payload["messages"]] == ["m1", "m2", "m3"]
+
+
+def test_around_requires_an_archived_message(store: Archive) -> None:
+    with pytest.raises(ToolError, match="not archived"):
+        _call(FakeReader(chats=[FAMILY]), store, around="missing")
+
+
+def test_around_rejects_a_message_from_another_chat(store: Archive) -> None:
+    store.upsert_messages([to_row(msg("m1"), {"u1": "Soda"}, "c2")])
+
+    with pytest.raises(ToolError, match="not archived"):
+        _call(FakeReader(chats=[FAMILY]), store, around="m1")
+
+
+def test_around_cannot_be_combined_with_a_window(store: Archive) -> None:
+    store.upsert_messages([to_row(msg("m1"), {"u1": "Soda"}, "c1")])
+
+    with pytest.raises(ToolError, match="already selects a window"):
+        _call(FakeReader(chats=[FAMILY]), store, around="m1", after="2026-10-01")
+
+
+def test_around_never_looks_up_sender_names(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages([to_row(msg(f"m{i}", ms=i * 1_000), names, "c1") for i in range(1, 4)])
+    reader = FakeReader(chats=[FAMILY])
+
+    _call(reader, store, around="m2", context=1)
+
+    assert not any(isinstance(call, tuple) and call[0] == "resolve_names" for call in reader.calls)
+
+
+def test_around_survives_a_failed_name_lookup(store: Archive) -> None:
+    names = {"u1": "Soda"}
+    store.upsert_messages([to_row(msg(f"m{i}", ms=i * 1_000), names, "c1") for i in range(1, 4)])
+    reader = FakeReader(chats=[FAMILY], names_error=ToolError("LINE request failed: offline"))
+
+    payload = _payload(_call(reader, store, around="m2", context=1))
+
+    assert [message["id"] for message in payload["messages"]] == ["m1", "m2", "m3"]
+    assert payload["messages"][0]["from"] == "Soda"  # the archived row still names it
+
+
+def test_an_archive_window_survives_a_failed_name_lookup(store: Archive) -> None:
+    store.upsert_messages([to_row(msg("m1", ms=_at(2026, 10, 5)), {"u1": "Soda"}, "c1")])
+    reader = FakeReader(chats=[FAMILY], names_error=ToolError("LINE request failed: offline"))
+
+    payload = _payload(_call(reader, store, limit=1, after="2026-10-01", before="2026-10-31"))
+
+    assert payload["source"] == "db"
+    assert payload["returned"] == 1

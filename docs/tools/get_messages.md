@@ -6,6 +6,8 @@ get_messages(
     limit: int = 30,
     after: str | None = None,
     before: str | None = None,
+    around: str | None = None,
+    context: int = 5,
 )
 ```
 
@@ -20,6 +22,10 @@ get_messages(
   nothing and works offline. LINE cannot jump to a date, so filling the rest
   means walking back from the newest message, at most five pages; `partial: true`
   says the budget ran out before the window's older edge.
+- `around` takes a message id from an earlier result and returns the messages
+  around it, with `context` messages on each side (1 to 50). It comes from the
+  archive only, so the id must have been read before; `limit` is ignored in this
+  mode, and `after` / `before` cannot be combined with it.
 - Messages are ordered oldest first and shaped `{id, at (local ISO 8601), from,
   kind, text, ...}`.
 - `kind` is `text`, `image`, `video`, `audio`, `sticker`, `file`, `location`,
@@ -31,5 +37,5 @@ get_messages(
 
 The tool returns MCP content blocks: one text block with JSON, then one image block
 per image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned,
-window{after,before}, source, e2ee_ready, stale, partial,
+window{after,before}, around, source, e2ee_ready, stale, partial,
 images[{message_id,path}], images_failed[]}`.
