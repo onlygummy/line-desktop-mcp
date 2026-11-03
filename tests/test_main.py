@@ -101,6 +101,7 @@ def test_search_messages_schema_and_description() -> None:
         "before",
         "from_sender",
         "order",
+        "match",
         "since_days",
         "sync",
     }

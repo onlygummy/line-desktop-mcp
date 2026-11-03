@@ -20,7 +20,7 @@ jobs:
       # No Node and no display are needed: the tests fake the LINE client and
       # only touch the window's pure helpers.
       - run: uv sync
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
       - run: uv run mypy
       - run: uv run pytest

@@ -335,12 +335,14 @@ class Archive:
         before_ms: int | None = None,
         from_mid: str | None = None,
         kinds: list[str] | None = None,
+        match: str = "substring",
         newest_first: bool = True,
     ) -> list[dict[str, Any]]:
         """Case-insensitive substring search over archived text.
 
         `text=None` skips the text match, which is how a `kinds` filter finds
-        images and other messages that never had text.
+        images and other messages that never had text. `match="words"` requires
+        every whitespace-separated term to appear, in any order.
         """
         sql = (
             "SELECT m.id, m.chat_mid, m.from_mid, m.from_name, m.delivered_ms, "
@@ -351,8 +353,10 @@ class Archive:
         )
         params: list[Any] = []
         if text is not None:
-            sql += " AND m.text IS NOT NULL AND m.text LIKE ? ESCAPE '\\'"
-            params.append(f"%{_escape_like(text)}%")
+            sql += " AND m.text IS NOT NULL"
+            for term in _terms(text, match):
+                sql += " AND m.text LIKE ? ESCAPE '\\'"
+                params.append(f"%{_escape_like(term)}%")
         where, more = _filters("m.", chat_mids, after_ms, before_ms, from_mid, kinds)
         sql += where
         params.extend(more)
@@ -451,6 +455,20 @@ def _filters(
         sql += f" AND {prefix}kind IN ({','.join('?' * len(kinds))})"
         params.extend(kinds)
     return sql, params
+
+
+def _terms(text: str, match: str) -> list[str]:
+    """The pieces of a query that must all appear.
+
+    `substring` keeps the query whole, so "new car" only matches those two
+    words in that order. `words` splits on whitespace instead, so the same
+    query also matches "car is new". Thai has no word separators, so `words`
+    buys nothing there: it is one term either way.
+    """
+    if match != "words":
+        return [text]
+    terms = [term for term in text.split() if term]
+    return terms or [text]
 
 
 def _escape_like(text: str) -> str:
