@@ -189,3 +189,19 @@ def test_oldest_returns_the_earliest_message(archive: Archive) -> None:
 
 def test_oldest_of_an_unknown_chat_is_none(archive: Archive) -> None:
     assert archive.oldest("nope") is None
+
+
+def test_message_finds_one_row_of_one_chat(archive: Archive) -> None:
+    archive.upsert_messages([_row("m1", "a", chat="c1"), _row("m2", "b", chat="c2")])
+
+    assert archive.message("c1", "m1")["id"] == "m1"
+    assert archive.message("c1", "m2") is None
+
+
+def test_messages_after_returns_the_oldest_newer_messages(archive: Archive) -> None:
+    archive.upsert_messages(
+        [_row("m1", "a", ms=1_000), _row("m2", "b", ms=2_000), _row("m3", "c", ms=3_000)]
+    )
+
+    assert [row["id"] for row in archive.messages_after("c1", 1_000, 2)] == ["m2", "m3"]
+    assert archive.messages_after("c1", 3_000, 2) == []

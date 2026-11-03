@@ -46,6 +46,7 @@ class FakeReader:
         fail_recent_for: set[str] | None = None,
         previous: Mapping[str, list[dict[str, Any]]] | None = None,
         names: Mapping[str, str] | None = None,
+        names_error: Exception | None = None,
         download: Callable[[Mapping[str, Any]], bytes | None] | None = None,
         e2ee_ready: bool = True,
         revoke_result: Mapping[str, Any] | None = None,
@@ -57,6 +58,7 @@ class FakeReader:
         self._fail_recent_for = set(fail_recent_for or ())
         self._previous = dict(previous or {})
         self._names = dict(names or {"u1": "Soda"})
+        self.names_error = names_error
         self._download = download
         self.revoke_result = dict(revoke_result or {"remote": "revoked", "error": None})
         self.revoke_error = revoke_error
@@ -79,6 +81,8 @@ class FakeReader:
 
     def resolve_names(self, mids) -> dict[str, str]:
         self.calls.append(("resolve_names", len(list(mids))))
+        if self.names_error is not None:
+            raise self.names_error
         return dict(self._names)
 
     def recent(self, chat_mid: str, count: int) -> list[dict[str, Any]]:

@@ -66,6 +66,15 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "Only messages on or before this date (`YYYY-MM-DD`). A bare date "
             "covers the whole day.",
         ] = None,
+        around: Annotated[
+            str | None,
+            "A message id from an earlier result: read the messages around it "
+            "instead of the newest ones. Answered from the archive.",
+        ] = None,
+        context: Annotated[
+            int,
+            Field(ge=1, le=50, description="Messages on each side when `around` is set."),
+        ] = 5,
     ) -> list[Any]:
         """Read the newest messages of one LINE chat, oldest first.
 
@@ -74,6 +83,12 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         day. The archive answers first, so a window that was read before is
         cheap and works offline; LINE is only paged back when the archive
         cannot fill `limit`.
+
+        Pass `around` to read the messages around one id, which is how a
+        search hit turns into its conversation. That answer comes from the
+        archive only, so the id must have been read before; `context` sets how
+        many messages appear on each side and `limit` is ignored. `around`
+        cannot be combined with `after` or `before`.
 
         Returns a JSON result plus the images those messages contain. Messages
         are decrypted when the saved session holds the Letter Sealing keys; a
@@ -90,17 +105,30 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         resolved = lookup.resolve(reader, archive, chat)
         chat_mid = str(resolved["mid"])
 
+        if around and (after or before):
+            raise ToolError("`around` already selects a window; drop `after`/`before`.")
+
         after_ms, before_ms = when.window(after, before)
-        entries, stale, source, partial = _collect(
-            reader, archive, chat_mid, limit, after_ms, before_ms
-        )
-        ordered = sorted(entries.values(), key=lambda entry: entry["ms"])[-limit:]
+        if around:
+            entries = _context(archive, chat_mid, around, context)
+            stale, source, partial = False, "db", False
+        else:
+            entries, stale, source, partial = _collect(
+                reader, archive, chat_mid, limit, after_ms, before_ms
+            )
+        ordered = sorted(entries.values(), key=lambda entry: entry["ms"])
+        if not around:
+            ordered = ordered[-limit:]
 
         # LINE does not put sender names in group messages, so resolve every
         # sender that is still unknown before rendering (one call per 100 mids).
-        names = reader.resolve_names(
-            [entry["raw"].get("from") for entry in ordered if entry.get("raw")]
-        )
+        # An archive-only answer must not need LINE: with no raw messages there
+        # is nothing to look up, and a failed lookup falls back to the mids.
+        sender_mids = [entry["raw"].get("from") for entry in ordered if entry.get("raw")]
+        try:
+            names = reader.resolve_names(sender_mids) if sender_mids else {}
+        except ToolError:
+            names = {}
         archive.upsert_messages(
             [
                 to_row(entry["raw"], names, chat_mid, reader.decrypt)
@@ -139,6 +167,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             "messages": [entry["view"] for entry in ordered],
             "returned": len(ordered),
             "window": {"after": after, "before": before},
+            "around": around,
             "source": source,
             "e2ee_ready": ready.e2ee_ready,
             "stale": stale,
@@ -301,6 +330,31 @@ def _remember_window(
         # A LINE copy replaces an archived row, so a message that was sealed
         # when it was read can still be decrypted today.
         entries[message_id] = {"ms": ms, "raw": message}
+
+
+def _context(
+    archive: Archive, chat_mid: str, message_id: str, context: int
+) -> dict[str, dict[str, Any]]:
+    """The messages around one archived message: before, the anchor, after.
+
+    Archive only. LINE has no API that walks forward, and the anchor came from
+    a previous read, so everything needed is already stored.
+    """
+    anchor = archive.message(chat_mid, message_id)
+    if anchor is None:
+        raise ToolError(
+            f"Message {message_id} is not archived for this chat. Read the chat "
+            "with get_messages first, then retry with `around`."
+        )
+    anchor_ms = int(anchor.get("delivered_ms") or 0)
+    entries: dict[str, dict[str, Any]] = {}
+    from_archive: set[str] = set()
+    for row in archive.messages(chat_mid, context, before_ms=anchor_ms):
+        _remember_row(entries, from_archive, row)
+    _remember_row(entries, from_archive, anchor)
+    for row in archive.messages_after(chat_mid, anchor_ms, context):
+        _remember_row(entries, from_archive, row)
+    return entries
 
 
 def _remember(entries: dict[str, dict[str, Any]], messages: list[dict[str, Any]]) -> None:

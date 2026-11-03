@@ -76,7 +76,14 @@ def test_read_tools_declare_their_local_side_effects() -> None:
 def test_get_messages_schema_and_description() -> None:
     read = {tool.name: tool for tool in _tools()}["get_messages"]
 
-    assert set(read.input_schema["properties"]) == {"chat", "limit", "after", "before"}
+    assert set(read.input_schema["properties"]) == {
+        "chat",
+        "limit",
+        "after",
+        "before",
+        "around",
+        "context",
+    }
     assert "archive" in read.description
     assert "stale" in read.description
 
