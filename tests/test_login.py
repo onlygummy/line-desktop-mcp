@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import threading
 from pathlib import Path
 
@@ -69,6 +71,7 @@ class FakeOkLine:
 
     def save_tokens(self, path: str) -> None:
         self.saved.append(path)
+        Path(path).write_text("{}", encoding="utf-8")
 
     def close(self) -> None:
         self.closed = True
@@ -247,6 +250,23 @@ def test_login_never_writes_to_stdout(capsys: pytest.CaptureFixture[str]) -> Non
     login.run_login(30)
 
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_fresh_login_makes_the_session_private(fakes: Path) -> None:
+    login.run_login(30)
+
+    assert stat.S_IMODE(fakes.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_text_qr_fallback_is_private(fakes: Path) -> None:
+    login._write_ascii_qr(fakes, "https://line.me/qr/test")
+
+    target = fakes.parent / "qr.txt"
+    assert target.exists()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
 
 
 def test_window_failure_falls_back_to_a_text_qr(fakes: Path) -> None:

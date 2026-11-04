@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 from pathlib import Path
 
 import pytest
@@ -41,6 +43,21 @@ def test_schema_is_versioned(archive: Archive) -> None:
     version = archive._connection().execute("PRAGMA user_version").fetchone()[0]
 
     assert int(version) == SCHEMA_VERSION
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_archive_database_and_sidecars_are_private(tmp_path: Path) -> None:
+    path = tmp_path / "state" / "archive.db"
+    store = Archive(path)
+    try:
+        store.upsert_messages([_row()])
+        files = [path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")]
+        existing = [candidate for candidate in files if candidate.exists()]
+        assert path in existing
+        assert all(stat.S_IMODE(candidate.stat().st_mode) == 0o600 for candidate in existing)
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    finally:
+        store.close()
 
 
 def test_upserting_the_same_message_twice_keeps_one_row(archive: Archive) -> None:

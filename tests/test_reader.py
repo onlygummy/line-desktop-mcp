@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import threading
 import time
 from pathlib import Path
@@ -142,6 +143,30 @@ def test_ready_reports_e2ee_state(session_file: Path) -> None:
     assert ready.e2ee_ready is False
     assert ready.node_available is True
     assert ready.session_path == session_file
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_opening_a_session_makes_it_private(session_file: Path) -> None:
+    session_file.chmod(0o644)
+    line = _reader(session_file)
+
+    line.ensure_ready()
+
+    assert stat.S_IMODE(session_file.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_a_refresh_cannot_widen_the_session_file(session_file: Path) -> None:
+    line = _reader(session_file)
+    line.ensure_ready()
+
+    def refresh(_api: FakeApi) -> str:
+        # OkLine rewrites the session with the process default mode.
+        session_file.chmod(0o644)
+        return "refreshed"
+
+    assert line._call(refresh) == "refreshed"
+    assert stat.S_IMODE(session_file.stat().st_mode) == 0o600
 
 
 def test_download_returns_none_when_obs_fails(session_file: Path) -> None:
