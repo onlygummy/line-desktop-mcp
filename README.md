@@ -92,6 +92,7 @@ Or to `opencode.json`:
 Read the [tool reference](docs/tools.md), [configuration](docs/configuration.md),
 [local storage](docs/storage.md), [troubleshooting](docs/troubleshooting.md),
 [development](docs/development.md), and [version history](docs/history.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Privacy and safety
 
