@@ -1,0 +1,62 @@
+name: Bug report
+description: Something is broken or behaves differently than documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste a LINE session, QR code, archive database, media file, or private chat content. Redact mids, names, and tokens.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual result and the command or tool call that produced it.
+      placeholder: The tool returned ... instead of ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that still shows the problem.
+      placeholder: |
+        1. Call ...
+        2. ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `uvx line-desktop-mcp --version` or the commit SHA.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and MCP client.
+      placeholder: Windows 11, Python 3.12, Claude Desktop 1.x
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Sensitive data
+      options:
+        - label: I removed session files, tokens, QR codes, archive contents, media, and private chat text from this report.
+          required: true
