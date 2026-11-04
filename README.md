@@ -1,9 +1,15 @@
 # line-desktop-mcp
 
+[![ci](https://github.com/onlygummy/line-desktop-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/onlygummy/line-desktop-mcp/actions/workflows/ci.yml)
+
 An MCP server that reads your own LINE chats. It logs in by scanning a QR code in a Tk window,
 lists chats, returns messages with their images, and can sign out again. It uses the unofficial
 OkLine SDK and FastMCP.
 Version 4.0.0. It is not affiliated with LINE Corporation or LY Corporation.
+
+> **v4 status:** this tree is version 4.0.0, but PyPI still serves 3.0.0.
+> `uvx line-desktop-mcp@latest` installs the old implementation until 4.0.0 is
+> published. Run from a checkout in the meantime.
 
 > **Read this first: Terms of Service.** Automating a personal LINE account
 > violates LINE's Terms of Service. Your account can be restricted or banned.
@@ -30,7 +36,30 @@ writes on this machine: the session, the message archive, and the image backups.
 You need Python 3.10+ with Tk and `uv`, Node.js 18+ on `PATH`, a LINE account with its phone signed
 in, and Windows, macOS, or Linux. The QR window needs a local desktop session.
 
-Add the server to Claude Desktop's `claude_desktop_config.json`:
+### Run from a checkout
+
+```bash
+git clone https://github.com/onlygummy/line-desktop-mcp.git
+cd line-desktop-mcp
+uv sync
+```
+
+Point the client at the checkout:
+
+```json
+{
+  "mcpServers": {
+    "line-desktop-mcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/line-desktop-mcp", "line-desktop-mcp"]
+    }
+  }
+}
+```
+
+### Install from PyPI
+
+After 4.0.0 is published, add the server to Claude Desktop's `claude_desktop_config.json`:
 
 ```json
 {
@@ -63,6 +92,7 @@ Or to `opencode.json`:
 Read the [tool reference](docs/tools.md), [configuration](docs/configuration.md),
 [local storage](docs/storage.md), [troubleshooting](docs/troubleshooting.md),
 [development](docs/development.md), and [version history](docs/history.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Privacy and safety
 

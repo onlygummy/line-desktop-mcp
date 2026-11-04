@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a capability or a change in behaviour.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include session files, tokens, QR codes, archive contents, or private chat text.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user need before proposing an implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the new behaviour or tool look like?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds, or approaches you rejected.
+
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundaries
+      options:
+        - label: This keeps the server read-only toward LINE. It does not send, delete, or mark messages as read.
+          required: true
+        - label: I removed session files, tokens, QR codes, archive contents, media, and private chat text from this request.
+          required: true
