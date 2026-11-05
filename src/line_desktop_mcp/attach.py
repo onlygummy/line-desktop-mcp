@@ -23,24 +23,37 @@ def attach_images(
     archive: Archive,
     chat_mid: str,
     items: Iterable[tuple[str, Mapping[str, Any]]],
-) -> tuple[list[tuple[str, Path]], list[str]]:
+    *,
+    max_images: int | None = None,
+    max_image_bytes: int | None = None,
+) -> tuple[list[tuple[str, Path]], list[str], list[str]]:
     """Save each image once, then return `(message_id, path)` pairs.
 
     `items` holds the image messages whose bytes are wanted, each with the raw
     payload `download()` needs. Ids whose bytes cannot be fetched or are not an
-    image come back in the second list.
+    image come back in the failure list. Ids omitted because of `max_images` or
+    `max_image_bytes` come back in the third list; a byte-capped image is still
+    archived so a later call can use it without downloading it again.
     """
     wanted = [(message_id, raw) for message_id, raw in items if message_id]
     if not wanted:
-        return [], []
+        return [], [], []
 
     known = archive.media_for([message_id for message_id, _raw in wanted])
     attached: list[tuple[str, Path]] = []
     failed: list[str] = []
+    skipped: list[str] = []
 
     for message_id, raw in wanted:
+        if max_images is not None and len(attached) >= max_images:
+            skipped.append(message_id)
+            continue
+
         saved = known.get(message_id)
         if saved:
+            if max_image_bytes is not None and int(saved.get("bytes") or 0) > max_image_bytes:
+                skipped.append(message_id)
+                continue
             path = paths.media_dir() / str(saved.get("rel_path"))
             if path.exists():
                 attached.append((message_id, path))
@@ -58,9 +71,12 @@ def attach_images(
         path = archive.media_path(chat_mid, message_id, ext)
         media.save_bytes(path, data)
         archive.record_media(message_id, chat_mid, path, data, ext)
+        if max_image_bytes is not None and len(data) > max_image_bytes:
+            skipped.append(message_id)
+            continue
         attached.append((message_id, path))
 
-    return attached, failed
+    return attached, failed, skipped
 
 
 def raw_payload(row: Mapping[str, Any]) -> dict[str, Any]:

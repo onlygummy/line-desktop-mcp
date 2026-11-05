@@ -75,6 +75,18 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
             int,
             Field(ge=1, le=50, description="Messages on each side when `around` is set."),
         ] = 5,
+        include_images: Annotated[
+            bool,
+            "Attach image content blocks. The image message rows are still returned when false.",
+        ] = True,
+        max_images: Annotated[
+            int | None,
+            Field(ge=1, le=100, description="Maximum image attachments for this call."),
+        ] = 20,
+        max_image_bytes: Annotated[
+            int | None,
+            Field(ge=1, description="Do not attach an image larger than this many bytes."),
+        ] = None,
     ) -> list[Any]:
         """Read the newest messages of one LINE chat, oldest first.
 
@@ -96,6 +108,12 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         Every message read is stored in a local SQLite archive, and every image
         is saved under the media directory before it is attached, so the next
         call is cheaper and still works when LINE is unreachable.
+
+        Pass `include_images=false` to keep the image message rows but attach
+        no image blocks. `max_images` defaults to 20 and caps the attachments;
+        `max_image_bytes` adds an optional byte cap. The ids that were not
+        attached appear in `images_skipped`. Pass `max_images=null` to remove
+        the count cap for one call.
 
         Check `partial`: true means the page budget ran out before `limit`, so
         older messages were not reached. Check `stale`: true means LINE could
@@ -143,19 +161,26 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
                 else row_to_view(entry["row"], names)
             )
 
-        images, images_failed = attach.attach_images(
-            reader,
-            archive,
-            chat_mid,
-            [
-                (
-                    str(entry["view"]["id"]),
-                    entry.get("raw") or attach.raw_payload(entry.get("row") or {}),
-                )
-                for entry in ordered
-                if entry["view"].get("kind") == "image"
-            ],
-        )
+        image_items = [
+            (
+                str(entry["view"]["id"]),
+                entry.get("raw") or attach.raw_payload(entry.get("row") or {}),
+            )
+            for entry in ordered
+            if entry["view"].get("kind") == "image"
+        ]
+        if include_images:
+            images, images_failed, images_skipped = attach.attach_images(
+                reader,
+                archive,
+                chat_mid,
+                image_items,
+                max_images=max_images,
+                max_image_bytes=max_image_bytes,
+            )
+        else:
+            images, images_failed = [], []
+            images_skipped = [message_id for message_id, _raw in image_items]
 
         payload = {
             "ok": True,
@@ -176,6 +201,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
                 {"message_id": message_id, "path": str(path)} for message_id, path in images
             ],
             "images_failed": images_failed,
+            "images_skipped": images_skipped,
         }
 
         blocks: list[Any] = [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]

@@ -143,7 +143,7 @@ def _digest_chat(
             for view in views
             if view.get("kind") == "image"
         ]
-        attached, failed = attach.attach_images(reader, archive, chat_mid, items)
+        attached, failed, _skipped = attach.attach_images(reader, archive, chat_mid, items)
 
     entry = {
         "chat": {"mid": chat_mid, "name": chat.get("name"), "kind": chat.get("kind")},

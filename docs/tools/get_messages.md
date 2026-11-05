@@ -8,6 +8,9 @@ get_messages(
     before: str | None = None,
     around: str | None = None,
     context: int = 5,
+    include_images: bool = True,
+    max_images: int | None = 20,
+    max_image_bytes: int | None = None,
 )
 ```
 
@@ -34,8 +37,14 @@ get_messages(
 - Non-text messages add a readable `summary` and a typed detail object
   (`sticker`, `location`, `contact`, `file`, `media`, `flex`, `event`), such as
   "sent a sticker (package 11537)" or "sent a file report.pdf (1234 bytes)".
+- `include_images` defaults to true. Set it to false to keep the image message
+  rows without attaching image blocks.
+- `max_images` defaults to 20 and caps how many image blocks one call attaches.
+  Set it to `null` to remove the cap for one call. `max_image_bytes` skips an
+  image whose bytes are larger than the cap. Omitted ids are listed in
+  `images_skipped`. The byte cap is off by default.
 
 The tool returns MCP content blocks: one text block with JSON, then one image block
-per image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned,
+per attached image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned,
 window{after,before}, around, source, e2ee_ready, stale, partial,
-images[{message_id,path}], images_failed[]}`.
+images[{message_id,path}], images_failed[], images_skipped[]}`.
