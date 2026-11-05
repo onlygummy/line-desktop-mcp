@@ -82,7 +82,7 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         max_images: Annotated[
             int | None,
             Field(ge=1, le=100, description="Maximum image attachments for this call."),
-        ] = None,
+        ] = 20,
         max_image_bytes: Annotated[
             int | None,
             Field(ge=1, description="Do not attach an image larger than this many bytes."),
@@ -110,9 +110,10 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         call is cheaper and still works when LINE is unreachable.
 
         Pass `include_images=false` to keep the image message rows but attach
-        no image blocks. Set `max_images` or `max_image_bytes` to cap the
-        attachments; the ids that were not attached appear in
-        `images_skipped`. Defaults leave the previous behaviour unchanged.
+        no image blocks. `max_images` defaults to 20 and caps the attachments;
+        `max_image_bytes` adds an optional byte cap. The ids that were not
+        attached appear in `images_skipped`. Pass `max_images=null` to remove
+        the count cap for one call.
 
         Check `partial`: true means the page budget ran out before `limit`, so
         older messages were not reached. Check `stale`: true means LINE could

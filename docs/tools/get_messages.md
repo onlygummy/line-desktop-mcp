@@ -9,7 +9,7 @@ get_messages(
     around: str | None = None,
     context: int = 5,
     include_images: bool = True,
-    max_images: int | None = None,
+    max_images: int | None = 20,
     max_image_bytes: int | None = None,
 )
 ```
@@ -39,9 +39,10 @@ get_messages(
   "sent a sticker (package 11537)" or "sent a file report.pdf (1234 bytes)".
 - `include_images` defaults to true. Set it to false to keep the image message
   rows without attaching image blocks.
-- `max_images` caps how many image blocks one call attaches. `max_image_bytes`
-  skips an image whose bytes are larger than the cap. Omitted ids are listed in
-  `images_skipped`. Both limits are off by default.
+- `max_images` defaults to 20 and caps how many image blocks one call attaches.
+  Set it to `null` to remove the cap for one call. `max_image_bytes` skips an
+  image whose bytes are larger than the cap. Omitted ids are listed in
+  `images_skipped`. The byte cap is off by default.
 
 The tool returns MCP content blocks: one text block with JSON, then one image block
 per attached image. The JSON is `{ok, chat{mid,name,kind}, messages[], returned,

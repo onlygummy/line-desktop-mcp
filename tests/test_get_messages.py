@@ -207,6 +207,20 @@ def test_max_images_caps_the_attachments(store: Archive) -> None:
     assert len(blocks) == 2
 
 
+def test_the_default_max_images_is_twenty(store: Archive) -> None:
+    images = [msg(f"m{index}", text="", ct=1, ms=1_000 + index) for index in range(21)]
+    reader = FakeReader(chats=[FAMILY], recent=images, download=lambda _message: PNG)
+
+    blocks = _call(reader, store, limit=30)
+
+    payload = _payload(blocks)
+
+    assert len(payload["images"]) == 20
+    assert payload["images_skipped"] == ["m20"]
+    assert reader.downloaded == [f"m{index}" for index in range(20)]
+    assert len(blocks) == 21
+
+
 def test_max_image_bytes_skips_a_large_image(store: Archive) -> None:
     image = msg("m1", text="", ct=1)
     reader = FakeReader(chats=[FAMILY], recent=[image], download=lambda _message: PNG)
