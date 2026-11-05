@@ -7,10 +7,6 @@ lists chats, returns messages with their images, and can sign out again. It uses
 OkLine SDK and FastMCP.
 Version 4.0.0. It is not affiliated with LINE Corporation or LY Corporation.
 
-> **v4 status:** this tree is version 4.0.0, but PyPI still serves 3.0.0.
-> `uvx line-desktop-mcp@latest` installs the old implementation until 4.0.0 is
-> published. Run from a checkout in the meantime.
-
 > **Read this first: Terms of Service.** Automating a personal LINE account
 > violates LINE's Terms of Service. Your account can be restricted or banned.
 > Use only your own account, keep volumes human-like, and treat the session
@@ -36,30 +32,9 @@ writes on this machine: the session, the message archive, and the image backups.
 You need Python 3.10+ with Tk and `uv`, Node.js 18+ on `PATH`, a LINE account with its phone signed
 in, and Windows, macOS, or Linux. The QR window needs a local desktop session.
 
-### Run from a checkout
-
-```bash
-git clone https://github.com/onlygummy/line-desktop-mcp.git
-cd line-desktop-mcp
-uv sync
-```
-
-Point the client at the checkout:
-
-```json
-{
-  "mcpServers": {
-    "line-desktop-mcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/line-desktop-mcp", "line-desktop-mcp"]
-    }
-  }
-}
-```
-
 ### Install from PyPI
 
-After 4.0.0 is published, add the server to Claude Desktop's `claude_desktop_config.json`:
+Add the server to Claude Desktop's `claude_desktop_config.json`:
 
 ```json
 {
@@ -76,6 +51,27 @@ Or to `opencode.json`:
   "mcp": {
     "servers": {
       "line-desktop-mcp": {"type": "local", "command": ["uvx", "line-desktop-mcp@latest"]}
+    }
+  }
+}
+```
+
+### Run from a checkout
+
+```bash
+git clone https://github.com/onlygummy/line-desktop-mcp.git
+cd line-desktop-mcp
+uv sync
+```
+
+Point the client at the checkout:
+
+```json
+{
+  "mcpServers": {
+    "line-desktop-mcp": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/line-desktop-mcp", "line-desktop-mcp"]
     }
   }
 }
