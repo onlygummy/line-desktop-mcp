@@ -10,6 +10,8 @@ import hashlib
 import re
 from pathlib import Path
 
+from line_desktop_mcp import paths
+
 # Magic-byte prefixes for the formats a LINE image bubble can carry. Order
 # matters only for readability; the values are distinct.
 _MAGIC: tuple[tuple[bytes, str], ...] = (
@@ -50,7 +52,9 @@ def sha256(data: bytes) -> str:
 
 def save_bytes(path: Path, data: bytes) -> None:
     """Write bytes atomically so a reader never sees a half-written file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    paths.ensure_private_dir(path.parent)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_bytes(data)
+    paths.harden_file(temp)
     temp.replace(path)
+    paths.harden_file(path)

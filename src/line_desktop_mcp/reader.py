@@ -103,6 +103,7 @@ class LineReader:
             self._api = api
             self._ready = ready
             self._session_mtime = mtime
+            paths.harden_file(path)
             return ready
 
     def close(self) -> None:
@@ -183,6 +184,11 @@ class LineReader:
                 ) from exc
             except LineError as exc:
                 raise ToolError(f"LINE request failed: {exc}") from exc
+            finally:
+                # A refreshed token is written back by OkLine, which uses the
+                # process default mode. Re-apply the private mode after every
+                # request so a refresh cannot widen the session file.
+                paths.harden_file(self._session_path())
 
     # -- data ---------------------------------------------------------------
     def profile(self) -> dict[str, Any]:

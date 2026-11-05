@@ -23,7 +23,7 @@ from okline.hmac_signer import HmacSignerError
 from okline.qrterm import qr_to_ascii
 from pydantic import Field
 
-from line_desktop_mcp.paths import session_path
+from line_desktop_mcp.paths import ensure_private_dir, harden_file, session_path
 from line_desktop_mcp.qr_window import QRWindow
 
 #: How long past `timeout_sec` to keep waiting before giving up. The library
@@ -68,6 +68,7 @@ def existing_login(path: Path) -> dict[str, Any] | None:
         return None
     try:
         with OkLine.from_tokens_file(str(path)) as api:
+            harden_file(path)
             return {
                 "profile": _profile_summary(api.get_profile()),
                 "e2ee_ready": bool(api.e2ee.is_ready()),
@@ -79,8 +80,9 @@ def existing_login(path: Path) -> dict[str, Any] | None:
 def _write_ascii_qr(path: Path, url: str) -> None:
     """Fallback when no window can open: leave the code next to the session."""
     target = path.parent / "qr.txt"
-    target.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(target.parent)
     target.write_text(qr_to_ascii(url), encoding="utf-8")
+    harden_file(target)
 
 
 def _clear_text_qr(path: Path) -> None:
@@ -122,8 +124,9 @@ def _login_worker(
             # The user cancelled while the phone was approving: never leave a
             # session behind that they did not ask to keep.
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(path.parent)
         api.save_tokens(str(path))
+        harden_file(path)
         box["profile"] = _profile_summary(api.get_profile())
         box["e2ee_ready"] = bool(api.e2ee.is_ready())
         _clear_text_qr(path)

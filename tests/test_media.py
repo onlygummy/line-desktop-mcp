@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
+
+import pytest
 
 from line_desktop_mcp import media
 
@@ -46,6 +50,16 @@ def test_save_bytes_writes_the_file_and_leaves_no_temp(tmp_path: Path) -> None:
 
     assert target.read_bytes() == PNG
     assert list(target.parent.glob("*.tmp")) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits only")
+def test_saved_media_is_private(tmp_path: Path) -> None:
+    target = tmp_path / "media" / "chat" / "m1.png"
+
+    media.save_bytes(target, PNG)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
 
 
 def test_sha256_is_stable() -> None:

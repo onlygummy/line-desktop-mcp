@@ -73,15 +73,22 @@ class Archive:
     def _connection(self) -> sqlite3.Connection:
         with self._lock:
             if self._conn is None:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
+                paths.ensure_private_dir(self.path.parent)
                 conn = sqlite3.connect(self.path, timeout=5.0, check_same_thread=False)
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("PRAGMA synchronous=NORMAL")
                 conn.execute("PRAGMA busy_timeout=5000")
                 self._migrate(conn)
+                self._harden_files()
                 self._conn = conn
             return self._conn
+
+    def _harden_files(self) -> None:
+        """Keep the database and its WAL sidecars private on POSIX."""
+        paths.harden_file(self.path)
+        for suffix in ("-wal", "-shm"):
+            paths.harden_file(self.path.with_name(self.path.name + suffix))
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
