@@ -37,7 +37,9 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         chat is named after the other person; a group keeps its LINE name.
         Nothing is marked as read. The listing is cached for a few minutes and
         archived locally, so it still answers when LINE cannot be reached
-        (`stale: true` says the data came from the archive).
+        (`stale: true` says the data came from the archive). `total` counts the
+        chats after filtering and before the limit; `truncated` is true when
+        more chats exist than `limit` returned.
         """
         reader.ensure_ready()
 
@@ -50,10 +52,13 @@ def register(mcp: FastMCP, reader: LineReader, archive: Archive) -> None:
         chats = _filter(chats, unread_only, query)
 
         shown = chats[:limit]
+        total = len(chats)
         return {
             "ok": True,
             "chats": shown,
             "returned": len(shown),
+            "total": total,
+            "truncated": total > len(shown),
             "unread_total": sum(int(chat.get("unread") or 0) for chat in chats),
             "stale": stale,
         }

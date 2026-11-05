@@ -12,6 +12,8 @@ list_chats(unread_only: bool = False, query: str | None = None, limit: int = 30)
   LINE is unreachable, the call still answers from the archive with `stale: true`.
 - Nothing is marked as read.
 
-The result is `{ok, chats[], returned, unread_total, stale}`. Each chat is
-`{mid, name, kind, unread, last_ms, last_preview}`. `kind` is `group`, `room`, or
-`dm`. A chat is named after its LINE name, else a member, else its mid.
+The result is `{ok, chats[], returned, total, truncated, unread_total, stale}`.
+Each chat is `{mid, name, kind, unread, last_ms, last_preview}`. `kind` is
+`group`, `room`, or `dm`. A chat is named after its LINE name, else a member,
+else its mid. `total` counts the filtered chats before `limit`; `truncated`
+is true when `total` is larger than `returned`.
