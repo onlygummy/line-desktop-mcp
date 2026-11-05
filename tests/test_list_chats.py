@@ -69,6 +69,24 @@ def test_respects_the_limit(archive: Archive) -> None:
     result = _call(FakeReader(chats=CHATS), archive, limit=1)
 
     assert result["returned"] == 1
+    assert result["total"] == 2
+    assert result["truncated"] is True
+
+
+def test_an_exact_limit_is_not_truncated(archive: Archive) -> None:
+    result = _call(FakeReader(chats=CHATS), archive, limit=2)
+
+    assert result["returned"] == 2
+    assert result["total"] == 2
+    assert result["truncated"] is False
+
+
+def test_total_counts_the_filtered_chats(archive: Archive) -> None:
+    result = _call(FakeReader(chats=CHATS), archive, unread_only=True, limit=1)
+
+    assert result["returned"] == 1
+    assert result["total"] == 1
+    assert result["truncated"] is False
 
 
 def test_archives_what_it_listed(archive: Archive) -> None:
