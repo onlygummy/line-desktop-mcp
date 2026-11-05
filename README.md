@@ -1,6 +1,8 @@
 # line-desktop-mcp
 
 [![ci](https://github.com/onlygummy/line-desktop-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/onlygummy/line-desktop-mcp/actions/workflows/ci.yml)
+[![pypi](https://img.shields.io/pypi/v/line-desktop-mcp.svg)](https://pypi.org/project/line-desktop-mcp/)
+[![downloads](https://img.shields.io/pypi/dm/line-desktop-mcp.svg)](https://pypi.org/project/line-desktop-mcp/)
 
 An MCP server that reads your own LINE chats. It logs in by scanning a QR code in a Tk window,
 lists chats, returns messages with their images, and can sign out again. It uses the unofficial
