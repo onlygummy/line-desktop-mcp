@@ -45,7 +45,8 @@ Do not commit:
 Releases are built from `v*` tags by `.github/workflows/release.yml`.
 
 - A tag builds and checks the distributions, creates a GitHub release, and uploads the artifacts.
-- PyPI publishing is opt-in with the repository variable `PYPI_PUBLISH=true` and the protected `pypi` environment.
+- PyPI publishing is opt-in with the repository variable `PYPI_PUBLISH=true` and the `PYPI_TOKEN` secret in the `Production` environment.
+- The `Production` environment holds the API token. Keep it scoped to this repository and rotate it if it leaks.
 - Do not push a release tag until the version in `pyproject.toml`, `src/line_desktop_mcp/__init__.py`, and the release notes agree.
 
 ## Questions
