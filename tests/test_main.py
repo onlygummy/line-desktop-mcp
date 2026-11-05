@@ -83,9 +83,13 @@ def test_get_messages_schema_and_description() -> None:
         "before",
         "around",
         "context",
+        "include_images",
+        "max_images",
+        "max_image_bytes",
     }
     assert "archive" in read.description
     assert "stale" in read.description
+    assert "images_skipped" in read.description
 
 
 def test_search_messages_schema_and_description() -> None:

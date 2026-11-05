@@ -174,6 +174,53 @@ def test_images_are_saved_and_attached(store: Archive) -> None:
     assert blocks[1].__class__.__name__ == "Image"
     assert saved.exists()
     assert store.media_for(["m1"])["m1"]["ext"] == "png"
+    assert payload["images_skipped"] == []
+
+
+def test_images_can_be_omitted(store: Archive) -> None:
+    image = msg("m1", text="", ct=1)
+    reader = FakeReader(chats=[FAMILY], recent=[image], download=lambda _message: PNG)
+
+    blocks = _call(reader, store, limit=10, include_images=False)
+
+    payload = _payload(blocks)
+
+    assert payload["images"] == []
+    assert payload["images_failed"] == []
+    assert payload["images_skipped"] == ["m1"]
+    assert payload["messages"][0]["kind"] == "image"
+    assert len(blocks) == 1
+    assert reader.downloaded == []
+
+
+def test_max_images_caps_the_attachments(store: Archive) -> None:
+    images = [msg("m1", text="", ct=1, ms=1_000), msg("m2", text="", ct=1, ms=2_000)]
+    reader = FakeReader(chats=[FAMILY], recent=images, download=lambda _message: PNG)
+
+    blocks = _call(reader, store, limit=10, max_images=1)
+
+    payload = _payload(blocks)
+
+    assert [image["message_id"] for image in payload["images"]] == ["m1"]
+    assert payload["images_skipped"] == ["m2"]
+    assert reader.downloaded == ["m1"]
+    assert len(blocks) == 2
+
+
+def test_max_image_bytes_skips_a_large_image(store: Archive) -> None:
+    image = msg("m1", text="", ct=1)
+    reader = FakeReader(chats=[FAMILY], recent=[image], download=lambda _message: PNG)
+
+    blocks = _call(reader, store, limit=10, max_image_bytes=8)
+
+    payload = _payload(blocks)
+
+    assert payload["images"] == []
+    assert payload["images_skipped"] == ["m1"]
+    assert payload["images_failed"] == []
+    assert len(blocks) == 1
+    # The bytes are still archived so a later call can use them without a fetch.
+    assert store.media_for(["m1"])["m1"]["ext"] == "png"
 
 
 def test_a_failed_download_is_reported_not_fatal(store: Archive) -> None:
